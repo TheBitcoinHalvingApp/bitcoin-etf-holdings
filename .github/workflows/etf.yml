@@ -1,0 +1,41 @@
+name: Bitcoin ETF holdings
+
+on:
+  schedule:
+    # 13:20 UTC = 6:20 am Pacific (5:20 am in winter). Issuers post the prior
+    # day's holdings overnight; this runs after they have.
+    - cron: "20 13 * * *"
+    # And the 1st and 16th of each month at 14:00 UTC: refresh the quarterly
+    # history from each trust's newest 10-Q or 10-K on EDGAR.
+    - cron: "0 14 1,16 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install requests beautifulsoup4 playwright
+          playwright install --with-deps chromium
+      - name: Refresh the quarterly history from SEC filings (twice a month)
+        if: github.event.schedule == '0 14 1,16 * *' || github.event_name == 'workflow_dispatch'
+        run: python backfill_edgar.py
+      - name: Pull holdings from the issuers
+        if: github.event.schedule != '0 14 1,16 * *'
+        run: python etf_holdings.py
+      - name: Commit the new figures
+        run: |
+          git config user.name "etf-bot"
+          git config user.email "etf-bot@users.noreply.github.com"
+          git add etf.json etf_previous.json history.csv history_quarterly.csv
+          git diff --cached --quiet && echo "No change" || git commit -m "ETF holdings $(date -u +%F)"
+          git push
