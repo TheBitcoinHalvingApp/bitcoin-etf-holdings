@@ -1,0 +1,558 @@
+#!/usr/bin/env python3
+"""
+etf_holdings.py - fetch the number of bitcoin held by each US spot Bitcoin ETF
+from each issuer's OWN public page, file or API (no third-party trackers),
+and write etf.json (plus etf_previous.json for day-over-day changes).
+
+Dependencies: requests, beautifulsoup4 (pip install --break-system-packages
+requests beautifulsoup4). Playwright + Chromium are loaded lazily and only
+for issuers whose sites refuse plain HTTP clients (Invesco, Fidelity, and the
+bot-walled Grayscale / WisdomTree attempts).
+"""
+import datetime as dt
+import glob
+import csv
+import json
+import os
+import re
+import shutil
+import sys
+import time
+import traceback
+
+try:
+    import requests
+except ImportError:  # pragma: no cover
+    os.system(f"{sys.executable} -m pip install --break-system-packages -q requests beautifulsoup4")
+    import requests
+try:
+    from bs4 import BeautifulSoup
+except ImportError:  # pragma: no cover
+    os.system(f"{sys.executable} -m pip install --break-system-packages -q beautifulsoup4")
+    from bs4 import BeautifulSoup
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT_JSON = os.path.join(HERE, "etf.json")
+PREV_JSON = os.path.join(HERE, "etf_previous.json")
+
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+TIMEOUT = 30
+PAUSE_BETWEEN_ISSUERS = 1.5
+
+SESSION = requests.Session()
+SESSION.headers.update({
+    "User-Agent": UA,
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+})
+
+
+# ----------------------------------------------------------------------------
+# helpers
+# ----------------------------------------------------------------------------
+def num(s):
+    """'799,878.62850' -> 799878.6285"""
+    return float(str(s).replace(",", "").replace("$", "").strip())
+
+
+def iso_date(s, fmts=("%m/%d/%Y", "%Y-%m-%d", "%Y/%m/%d", "%b %d, %Y", "%b-%d-%Y",
+                      "%B %d, %Y", "%m/%d/%y")):
+    s = (s or "").strip()
+    for f in fmts:
+        try:
+            return dt.datetime.strptime(s, f).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return ""
+
+
+def get(url, **kw):
+    kw.setdefault("timeout", TIMEOUT)
+    r = SESSION.get(url, **kw)
+    r.raise_for_status()
+    return r
+
+
+# --- lazy Playwright ---------------------------------------------------------
+_PW = {"pw": None, "browser": None}
+
+
+def _browser():
+    """Launch Chromium once and reuse it for every issuer that needs a browser."""
+    if _PW["browser"] is None:
+        from playwright.sync_api import sync_playwright
+        _PW["pw"] = sync_playwright().start()
+        exe = None
+        cands = sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome"))
+        if cands:
+            exe = cands[-1]
+        kw = {"headless": True, "args": ["--disable-blink-features=AutomationControlled"]}
+        if exe:
+            kw["executable_path"] = exe
+        _PW["browser"] = _PW["pw"].chromium.launch(**kw)
+    return _PW["browser"]
+
+
+def browser_page(url, wait_text=None, capture=None, wait_until="domcontentloaded",
+                 settle=3, max_wait=45, ua=UA):
+    """
+    Load `url` in a fresh browser context. Returns (body_text, captured) where
+    captured is a list of {url, body} for XHR/fetch responses whose URL contains
+    `capture` (a substring). Waits until `wait_text` appears in the page text.
+    """
+    b = _browser()
+    ctx_kw = {"locale": "en-US", "viewport": {"width": 1366, "height": 900}}
+    if ua:  # some sites (Invesco/Akamai) reject a UA that disagrees with client hints
+        ctx_kw["user_agent"] = ua
+    ctx = b.new_context(**ctx_kw)
+    page = ctx.new_page()
+    captured = []
+
+    def on_resp(r):
+        try:
+            if capture and capture in r.url:
+                captured.append({"url": r.url, "status": r.status, "body": r.text()})
+        except Exception:
+            pass
+
+    page.on("response", on_resp)
+    try:
+        try:
+            page.goto(url, wait_until=wait_until, timeout=TIMEOUT * 1000)
+        except Exception as e:  # networkidle timeouts are common; keep going
+            if "Timeout" not in str(e):
+                raise
+        deadline = time.time() + max_wait
+        text = ""
+        while time.time() < deadline:
+            time.sleep(settle)
+            try:
+                text = page.inner_text("body")
+            except Exception:
+                text = ""
+            if not wait_text or wait_text in text:
+                break
+        return text, captured
+    finally:
+        ctx.close()
+
+
+def close_browser():
+    try:
+        if _PW["browser"]:
+            _PW["browser"].close()
+        if _PW["pw"]:
+            _PW["pw"].stop()
+    except Exception:
+        pass
+
+
+# ----------------------------------------------------------------------------
+# one function per fund: returns (btc_held, as_of, source_url, method)
+# ----------------------------------------------------------------------------
+def fetch_ibit():
+    """BlackRock: official holdings CSV linked from the product page."""
+    url = "https://www.ishares.com/us/products/333011/ishares-bitcoin-trust-etf/latest-holdings.csv"
+    r = get(url, headers={"Accept": "text/csv,*/*"})
+    txt = r.text
+    m = re.search(r'Fund Holdings as of,"([^"]+)"', txt)
+    as_of = iso_date(m.group(1)) if m else ""
+    # row: "BTC","BITCOIN",...,"Quantity",...
+    for line in txt.splitlines():
+        if line.startswith('"BTC"'):
+            cells = [c.strip('"') for c in line.split('","')]
+            # header: Ticker,Name,Sector,Asset Class,Market Value,Weight (%),Notional Value,Quantity,...
+            qty = num(cells[7])
+            return qty, as_of, url, "requests: iShares latest-holdings.csv, BTC row, Quantity column"
+    raise RuntimeError("BTC row not found in iShares holdings CSV")
+
+
+def fetch_fbtc():
+    """Fidelity: quote dashboard shows 'Total bitcoin in fund' (needs a browser)."""
+    url = "https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC"
+    text, _ = browser_page(url, wait_text="Total bitcoin in fund")
+    m = re.search(r"Total bitcoin in fund\s*\n\s*As of\s+([A-Za-z]{3}-\d{2}-\d{4})\s*\n\s*([\d,]+\.?\d*)", text)
+    if not m:
+        raise RuntimeError("'Total bitcoin in fund' not found on Fidelity dashboard")
+    return num(m.group(2)), iso_date(m.group(1)), url, \
+        "playwright: Fidelity quote dashboard, 'Total bitcoin in fund' field"
+
+
+def _grayscale(ticker):
+    url = f"https://etfs.grayscale.com/{ticker.lower()}"
+    # 1) plain request (Grayscale answers 429 + Vercel Security Checkpoint to non-browsers)
+    try:
+        r = SESSION.get(url, timeout=TIMEOUT)
+        status, html = r.status_code, r.text
+    except Exception as e:
+        status, html = f"error {type(e).__name__}", ""
+    if status == 200 and "Security Checkpoint" not in html:
+        text = BeautifulSoup(html, "html.parser").get_text("\n")
+    else:
+        # 2) real browser
+        text, _ = browser_page(url, wait_text="Bitcoin per Share", max_wait=40)
+        if "Security Checkpoint" in text or "Failed to verify your browser" in text:
+            raise RuntimeError(f"Grayscale blocked both requests (HTTP {status}) "
+                               f"and headless Chromium with a Vercel Security Checkpoint")
+    # Look for 'Bitcoin in Trust' / 'Total Bitcoin' style figure
+    m = (re.search(r"(?:Bitcoin in Trust|Total Bitcoin(?: in Trust)?|Bitcoin Holdings)\s*\n?\s*([\d,]+\.?\d*)", text, re.I)
+         or re.search(r"([\d,]{5,}\.?\d*)\s*BTC", text))
+    if not m:
+        raise RuntimeError("could not find bitcoin-in-trust figure on Grayscale page")
+    d = re.search(r"as of\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.I)
+    return num(m.group(1)), iso_date(d.group(1)) if d else "", url, "grayscale product page"
+
+
+def fetch_gbtc():
+    return _grayscale("GBTC")
+
+
+def fetch_btc_mini():
+    return _grayscale("BTC")
+
+
+def fetch_arkb():
+    url = "https://assets.ark-funds.com/fund-documents/funds-etf-csv/ARK_21SHARES_BITCOIN_ETF_ARKB_HOLDINGS.csv"
+    r = get(url, headers={"Accept": "text/csv,*/*"})
+    import csv
+    import io
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    for row in rows:
+        if (row.get("ticker") or "").strip().upper() == "BTC":
+            return num(row["shares"]), iso_date(row.get("date", "")), url, \
+                "requests: ARK daily holdings CSV, ticker BTC, 'shares' column"
+    raise RuntimeError("BTC row not found in ARKB CSV")
+
+
+def fetch_bitb():
+    url = "https://bitbetf.com/"
+    r = get(url)
+    text = BeautifulSoup(r.text, "html.parser").get_text("\n")
+    # Fund Holdings table: "Bitcoin in Trust" 38,305.94, preceded by "Data as of 09/24/2026"
+    m = re.search(r"Fund Holdings\s*\n\s*Data as of\s*\n?\s*(\d{2}/\d{2}/\d{4})[\s\S]{0,400}?Bitcoin in Trust\s*\n\s*([\d,]+\.?\d*)", text)
+    if not m:
+        raise RuntimeError("Fund Holdings / Bitcoin in Trust not found on bitbetf.com")
+    btc, as_of = num(m.group(2)), iso_date(m.group(1))
+    por = re.search(r"Trust Net Assets\s*\n\s*([\d,]+)\s*BTC", text)
+    method = "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust'"
+    if por:
+        method += f" (Proof of Reserves 'Trust Net Assets' shows {por.group(1)} BTC)"
+    return btc, as_of, url, method
+
+
+def fetch_hodl():
+    """VanEck: the holdings block on the page is filled by this JSON endpoint."""
+    url = ("https://www.vaneck.com/Main/HoldingsBlock/GetContent/?blockid=348327&pageid=243755"
+           "&ticker=HODL&reactlang=en&reactctr=us&epieditmode=false&latest=false&contextmode=Default")
+    r = get(url, headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
+                          "Referer": "https://www.vaneck.com/us/en/investments/bitcoin-etf-hodl/holdings/"})
+    d = r.json()["data"]
+    for h in d.get("Holdings", []):
+        if (h.get("HoldingName") or "").lower() == "bitcoin":
+            return num(h["Shares"]), iso_date(d.get("AsOfDate", "")), url, \
+                "requests: VanEck HoldingsBlock JSON (feeds the HODL holdings page), Bitcoin row 'Shares'"
+    raise RuntimeError("Bitcoin row not found in VanEck holdings JSON")
+
+
+def fetch_brrr():
+    """CoinShares: the product page's holdings widget is fed by www-api.coinshares.com."""
+    url = ("https://www-api.coinshares.com/api/v2/Widgets?ApiKey=094DA478-140C-4E3E-B394-7A19BBE8326B"
+           "&names=VALKYRIE_HOLDINGS_BRRR")
+    r = get(url, headers={"Accept": "application/json", "Origin": "https://coinshares.com",
+                          "Referer": "https://coinshares.com/us/etf/brrr/"})
+    for widget in r.json():
+        for sec in widget.get("sections", []):
+            meta = {m["key"]: m["value"] for m in sec.get("meta", [])}
+            if (meta.get("securityname") or "").upper() == "BITCOIN":
+                return num(meta["shares"]), iso_date(meta.get("date", "")), url, \
+                    "requests: CoinShares widgets API VALKYRIE_HOLDINGS_BRRR (feeds coinshares.com/us/etf/brrr), BITCOIN 'shares'"
+    raise RuntimeError("BITCOIN row not found in CoinShares widget JSON")
+
+
+def fetch_ezbc():
+    """Franklin Templeton: GraphQL 'Holdings' call the product page makes."""
+    url = "https://www.franklintempleton.com/api/pds/price-and-performance?op=Holdings"
+    page = ("https://www.franklintempleton.com/investments/options/exchange-traded-funds/products/"
+            "39639/SINGLCLASS/franklin-bitcoin-etf/EZBC")
+    q = {"query": "query Holdings($productId: String!, $countryCode: String!, $languageCode: String!) {"
+                  " Portfolio(fundid: $productId, countrycode: $countryCode, languagecode: $languageCode) {"
+                  " fundname portfolio { dailyholdings { asofdatestd secname cusipnbr quantityshrpar mktvalue pctofnetassets } } } }",
+         "variables": {"countryCode": "US", "languageCode": "en_US", "productId": "39639"},
+         "operationName": "Holdings"}
+    r = SESSION.post(url, json=q, timeout=TIMEOUT,
+                     headers={"Accept": "application/json, text/plain, */*", "Referer": page})
+    r.raise_for_status()
+    for h in r.json()["data"]["Portfolio"]["portfolio"]["dailyholdings"]:
+        if (h.get("secname") or "").upper() == "BITCOIN":
+            return num(h["quantityshrpar"]), iso_date(h.get("asofdatestd", "")), url, \
+                "requests: Franklin GraphQL Holdings (feeds EZBC product page), BITCOIN 'quantityshrpar'"
+    raise RuntimeError("BITCOIN row not found in Franklin holdings")
+
+
+def fetch_btco():
+    """Invesco: Akamai returns 406 to non-browser clients; load the holdings page in
+    Chromium and read the dng-api fundDetails JSON ('units') that fills 'Total units of crypto'."""
+    url = "https://www.invesco.com/us/financial-products/etfs/holdings?audienceType=Investor&ticker=BTCO"
+    text, caps = browser_page(url, wait_text="Total units of crypto",
+                              capture="variationType=fundDetails", ua=None)
+    for c in caps:
+        try:
+            d = json.loads(c["body"])
+        except Exception:
+            continue
+        if d.get("units"):
+            return float(d["units"]), iso_date(d.get("shareclassTotalNetAssetsEffectiveDate")
+                                                or d.get("effectiveBusinessDate", "")), url, \
+                "playwright: Invesco holdings page; dng-api fundDetails JSON 'units' (= 'Total units of crypto')"
+    m = re.search(r"Total units of crypto\s*\n\s*([\d,]+\.?\d*)", text)
+    if m:
+        d = re.search(r"Market value \(as of (\d{2}/\d{2}/\d{4})\)", text)
+        return num(m.group(1)), iso_date(d.group(1)) if d else "", url, \
+            "playwright: Invesco holdings page text, 'Total units of crypto'"
+    raise RuntimeError("'Total units of crypto' not found on Invesco page")
+
+
+def fetch_btcw():
+    url = "https://www.wisdomtree.com/investments/etfs/crypto/btcw"
+    try:
+        r = SESSION.get(url, timeout=TIMEOUT)
+        status, html = r.status_code, r.text
+    except Exception as e:
+        status, html = f"error {type(e).__name__}", ""
+    if status == 200 and "Sorry, you have been blocked" not in html:
+        text = BeautifulSoup(html, "html.parser").get_text("\n")
+    else:
+        text, _ = browser_page(url, wait_text="Bitcoin", max_wait=45)
+        if "security verification" in text.lower() or "you have been blocked" in text.lower():
+            raise RuntimeError(f"WisdomTree blocked both requests (HTTP {status}) and headless "
+                               f"Chromium with a Cloudflare managed challenge")
+    m = (re.search(r"(?:Bitcoin(?: Held)?(?: in Trust)?|BTC(?: Held)?)\s*\n?\s*([\d,]{4,}\.?\d*)", text)
+         or re.search(r"([\d,]{4,}\.?\d*)\s*BTC", text))
+    if not m:
+        raise RuntimeError("could not find bitcoin holdings figure on WisdomTree page")
+    d = re.search(r"as of\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.I)
+    return num(m.group(1)), iso_date(d.group(1)) if d else "", url, "wisdomtree product page"
+
+
+# --- SEC-anchored fallback for the three walled issuers ------------------------
+# Grayscale and WisdomTree challenge automated readers from some addresses. When
+# the direct read fails, the holdings are ESTIMATED from public filings, and the
+# JSON says so ("estimated": true, with the basis):
+#   bitcoin per share moves only by the daily sponsor fee between filings, so
+#   BPS(today) = BPS(quarter end) x (1 - fee)^(days/365), exactly (checked against
+#   two quarters of Grayscale filings: matches to five decimals);
+#   holdings(today) = shares outstanding(today) x BPS(today).
+# Shares outstanding: WisdomTree from Nasdaq's market cap / last price (matched
+# the issuer's own figure to the share on 2026-09-28); Grayscale from the latest
+# cover-page count in the trust's own 10-Q/10-K on EDGAR (quarterly, so the
+# estimate drifts between filings; GBTC has been shedding 5 to 10% a quarter).
+SEC_UA = "Bitcoin Halvening ETF bot admin@example.com"  # the SEC asks for a name and contact in the UA
+
+def sec_facts(cik):
+    r = requests.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json",
+                     headers={"User-Agent": SEC_UA, "Accept-Encoding": "gzip, deflate"}, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.json()["facts"]
+
+def _latest(facts, ns, key):
+    units = facts[ns][key]["units"]
+    rows = units[list(units)[0]]
+    best = max(rows, key=lambda r: r["end"])
+    return float(best["val"]), best["end"]
+
+def nasdaq_shares(ticker):
+    """Shares outstanding implied by Nasdaq's market cap and last sale price."""
+    h = {"User-Agent": UA, "Accept": "application/json", "Accept-Language": "en-US"}
+    base = f"https://api.nasdaq.com/api/quote/{ticker}/"
+    summ = requests.get(base + "summary?assetclass=etf", headers=h, timeout=TIMEOUT).json()["data"]["summaryData"]
+    info = requests.get(base + "info?assetclass=etf", headers=h, timeout=TIMEOUT).json()["data"]["primaryData"]
+    cap = num(summ["MarketCap"]["value"])
+    px = num(info["lastSalePrice"].replace("$", ""))
+    if not cap or not px:
+        raise RuntimeError(f"Nasdaq gave no market cap or price for {ticker}")
+    return round(cap / px), info.get("lastTradeTimestamp", "")
+
+def _decayed_bps(bps_anchor, anchor_date, fee_per_year):
+    days = (dt.date.today() - dt.date.fromisoformat(anchor_date)).days
+    return bps_anchor * (1.0 - fee_per_year) ** (days / 365.0)
+
+def estimate_grayscale(ticker, cik, fee):
+    f = sec_facts(cik)
+    btc, q_end = _latest(f, "us-gaap", "InvestmentOwnedBalanceContracts")
+    sh_q, q_end2 = _latest(f, "us-gaap", "SharesOutstanding")
+    if q_end2 != q_end:
+        raise RuntimeError("filing dates disagree")
+    bps = _decayed_bps(btc / sh_q, q_end, fee)
+    shares, cover_date = _latest(f, "dei", "EntityCommonStockSharesOutstanding")
+    est = shares * bps
+    method = (f"ESTIMATE from SEC filings: {btc:,.2f} BTC / {sh_q:,.0f} shares at {q_end} "
+              f"(bitcoin per share, less the {fee*100:.2f}% fee accrued since) x {shares:,.0f} shares "
+              f"outstanding on the {cover_date} 10-Q cover; Grayscale's site blocks automated readers")
+    return est, cover_date, f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json", method
+
+# WisdomTree's XBRL carries no bitcoin count; the 10-Q's schedule of investments
+# does. Re-anchor these two numbers each quarter from the newest 10-Q or 10-K.
+BTCW_ANCHOR = {"btc": 2310.0, "shares": 2_185_000, "date": "2026-06-30", "fee": 0.0025}
+QUARTERLY_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history_quarterly.csv")
+
+def btcw_anchor():
+    """The newest BTCW quarter end in history_quarterly.csv (written by backfill_edgar.py
+    from the trust's own 10-Q/10-K), falling back to the typed constant."""
+    a = dict(BTCW_ANCHOR)
+    try:
+        with open(QUARTERLY_CSV) as fh:
+            rows = [r for r in csv.DictReader(fh) if r["ticker"] == "BTCW" and r.get("btc") and r.get("shares_outstanding")]
+        if rows:
+            r = max(rows, key=lambda r: r["date"])
+            if r["date"] >= a["date"]:
+                a.update({"btc": float(r["btc"]), "shares": int(float(r["shares_outstanding"])), "date": r["date"]})
+    except Exception as e:
+        print(f"   history_quarterly.csv not used for BTCW anchor: {e}", file=sys.stderr)
+    return a
+
+def estimate_btcw():
+    a = btcw_anchor()
+    bps = _decayed_bps(a["btc"] / a["shares"], a["date"], a["fee"])
+    shares, stamp = nasdaq_shares("BTCW")
+    est = shares * bps
+    method = (f"ESTIMATE: {a['btc']:,.0f} BTC / {a['shares']:,} shares at {a['date']} (10-Q schedule of investments; "
+              f"bitcoin per share less the {a['fee']*100:.2f}% fee since) x {shares:,} shares outstanding "
+              f"(Nasdaq market cap / last price, {stamp}); WisdomTree's site blocks automated readers")
+    return est, dt.date.today().isoformat(), "https://api.nasdaq.com/api/quote/BTCW/summary?assetclass=etf", method
+
+def with_fallback(direct, fallback):
+    """Try the issuer's page; if it is walled, estimate from filings and flag it."""
+    def run():
+        try:
+            return direct()
+        except Exception as e:
+            print(f"   direct read failed ({type(e).__name__}: {e}); estimating from filings", file=sys.stderr)
+            btc, as_of, src, method = fallback()
+            return btc, as_of, src, method, True
+    return run
+
+
+def fetch_defi():
+    """Hashdex DEFI (optional). Its own page says the fund was liquidated."""
+    url = "https://hashdex-etfs.com/defi"
+    text, _ = browser_page(url, wait_text="Holdings", max_wait=30)
+    if "has been liquidated" in text or "Closure of Hashdex Bitcoin ETF" in text:
+        d = re.search(r"Holdings\s*\n\s*As of ([A-Z][a-z]+ \d{1,2}, \d{4})", text)
+        return 0.0, iso_date(d.group(1)) if d else "", url, \
+            "playwright: hashdex-etfs.com states the fund has been liquidated and delisted; holdings recorded as 0"
+    m = re.search(r"BTC\s*\n\s*BITCOIN\s*\n\s*([\d,]+\.?\d*)", text)
+    if not m:
+        raise RuntimeError("BTC row not found on Hashdex page")
+    d = re.search(r"Holdings\s*\n\s*As of ([A-Z][a-z]+ \d{1,2}, \d{4})", text)
+    return num(m.group(1)), iso_date(d.group(1)) if d else "", url, "playwright: hashdex-etfs.com holdings table"
+
+
+# All eleven US spot bitcoin ETFs. Eight read the issuer's own file or page every
+# morning. Grayscale GBTC and BTC and WisdomTree BTCW try the issuer's page first
+# (some addresses pass their bot checks, some do not) and fall back to an estimate
+# anchored to the trusts' own SEC filings, flagged "estimated". Hashdex DEFI was
+# liquidated in August 2026.
+FUNDS = [
+    ("IBIT", "BlackRock iShares",     "iShares Bitcoin Trust ETF",            fetch_ibit),
+    ("FBTC", "Fidelity",              "Fidelity Wise Origin Bitcoin Fund",    fetch_fbtc),
+    ("ARKB", "ARK 21Shares",          "ARK 21Shares Bitcoin ETF",             fetch_arkb),
+    ("BITB", "Bitwise",               "Bitwise Bitcoin ETF",                  fetch_bitb),
+    ("HODL", "VanEck",                "VanEck Bitcoin ETF",                   fetch_hodl),
+    ("BRRR", "CoinShares Valkyrie",   "CoinShares Bitcoin ETF",               fetch_brrr),
+    ("EZBC", "Franklin Templeton",    "Franklin Bitcoin ETF",                 fetch_ezbc),
+    ("BTCO", "Invesco Galaxy",        "Invesco Galaxy Bitcoin ETF",           fetch_btco),
+    ("GBTC", "Grayscale",             "Grayscale Bitcoin Trust ETF",          with_fallback(fetch_gbtc, lambda: estimate_grayscale("GBTC", 1588489, 0.015))),
+    ("BTC",  "Grayscale",             "Grayscale Bitcoin Mini Trust ETF",     with_fallback(fetch_btc_mini, lambda: estimate_grayscale("BTC", 2015034, 0.0015))),
+    ("BTCW", "WisdomTree",            "WisdomTree Bitcoin Fund",              with_fallback(fetch_btcw, estimate_btcw)),
+]
+NOT_COVERED = "Hashdex DEFI (liquidated August 2026)"
+HISTORY_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.csv")
+
+
+def main():
+    previous = None
+    if os.path.exists(PREV_JSON):
+        try:
+            with open(PREV_JSON) as f:
+                previous = json.load(f)
+        except Exception:
+            previous = None
+    prev_by_ticker = {}
+    prev_rec = {}
+    if previous:
+        for fnd in previous.get("funds", []):
+            if isinstance(fnd.get("btc"), (int, float)):
+                prev_by_ticker[fnd["ticker"]] = fnd["btc"]
+                prev_rec[fnd["ticker"]] = fnd
+
+    results = []
+    for i, (ticker, issuer, name, fn) in enumerate(FUNDS):
+        if i:
+            time.sleep(PAUSE_BETWEEN_ISSUERS)
+        rec = {"ticker": ticker, "issuer": issuer, "name": name}
+        try:
+            got = fn()
+            btc, as_of, source, method = got[0], got[1], got[2], got[3]
+            estimated = len(got) > 4 and bool(got[4])
+            rec.update({"btc": round(float(btc), 8), "as_of": as_of, "source": source, "method": method})
+            if estimated:
+                rec["estimated"] = True
+            print(f"{ticker:5s} {btc:>16,.4f} BTC  as of {as_of or '?':10s}  {method}", file=sys.stderr)
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+            print(f"{ticker:5s} FAILED: {err}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr) if os.environ.get("ETF_DEBUG") else None
+            if ticker in prev_rec:
+                # One flaky morning must not drop a fund from the total: carry the
+                # last good figure forward, with its own date, and say so.
+                old = prev_rec[ticker]
+                rec.update({"btc": old["btc"], "as_of": old.get("as_of", ""), "source": old.get("source", ""),
+                            "method": old.get("method", ""), "stale": True, "error": err})
+                print(f"{ticker:5s} carried forward {old['btc']:,.4f} BTC as of {old.get('as_of','?')}", file=sys.stderr)
+            else:
+                rec.update({"btc": None, "as_of": "", "source": "", "method": "", "error": err})
+        if previous and ticker in prev_by_ticker and rec.get("btc") is not None and not rec.get("stale"):
+            rec["change_btc"] = round(rec["btc"] - prev_by_ticker[ticker], 8)
+        results.append(rec)
+
+    close_browser()
+
+    ok = [r for r in results if r.get("btc") is not None]
+    out = {
+        "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "funds": results,
+        "total_btc": round(sum(r["btc"] for r in ok), 8),
+        "ok": len(ok),
+        "failed": len(results) - len(ok),
+    }
+    out["stale"] = sum(1 for r in ok if r.get("stale"))
+    out["estimated"] = sum(1 for r in ok if r.get("estimated"))
+    out["not_covered"] = NOT_COVERED
+    if previous:
+        out["previous_generated_at"] = previous.get("generated_at", "")
+
+    with open(OUT_JSON, "w") as f:
+        json.dump(out, f, indent=2)
+    shutil.copyfile(OUT_JSON, PREV_JSON)
+    # One line a day of history, for charts later: date, total, then each fund in FUNDS order.
+    try:
+        new_file = not os.path.exists(HISTORY_CSV)
+        with open(HISTORY_CSV, "a") as h:
+            if new_file:
+                h.write("date,total_btc," + ",".join(t for t, _, _, _ in FUNDS) + "\n")
+            by = {r["ticker"]: r for r in results}
+            cells = [out["generated_at"][:10], f"{out['total_btc']:.4f}"]
+            for t, _, _, _ in FUNDS:
+                v = by.get(t, {}).get("btc")
+                cells.append("" if v is None else f"{v:.4f}")
+            h.write(",".join(cells) + "\n")
+    except Exception as e:
+        print(f"history.csv not written: {e}", file=sys.stderr)
+    print(f"wrote {OUT_JSON}: ok={out['ok']} failed={out['failed']} total_btc={out['total_btc']:,.2f}",
+          file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
