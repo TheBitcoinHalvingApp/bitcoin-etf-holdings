@@ -1,0 +1,77 @@
+{
+  "days": [],
+  "periods": [
+    {
+      "group": "year",
+      "label": "2024",
+      "net_btc": 506101.42,
+      "start_btc": 619525.93,
+      "end_btc": 1125627.35,
+      "status": "exact",
+      "through": "2024-12-31"
+    },
+    {
+      "group": "year",
+      "label": "2025",
+      "net_btc": 172272.82,
+      "start_btc": 1125627.35,
+      "end_btc": 1297900.18,
+      "status": "exact",
+      "through": "2025-12-31"
+    },
+    {
+      "group": "year",
+      "label": "2026",
+      "net_btc": -188936.55,
+      "start_btc": 1297900.18,
+      "end_btc": 1108963.63,
+      "status": "so far",
+      "through": "2026-10-01"
+    },
+    {
+      "group": "quarter",
+      "label": "Q1 2026",
+      "net_btc": -8302.55,
+      "start_btc": 1297900.18,
+      "end_btc": 1289597.63,
+      "status": "exact",
+      "through": "2026-03-31"
+    },
+    {
+      "group": "quarter",
+      "label": "Q2 2026",
+      "net_btc": -79298.22,
+      "start_btc": 1289597.63,
+      "end_btc": 1210299.4,
+      "status": "exact",
+      "through": "2026-06-30"
+    },
+    {
+      "group": "quarter",
+      "label": "Q3 2026",
+      "net_btc": 73448.46,
+      "start_btc": 1210299.4,
+      "end_btc": 1283747.86,
+      "status": "daily",
+      "through": "2026-09-30"
+    },
+    {
+      "group": "quarter",
+      "label": "Q4 2026",
+      "net_btc": -174784.24,
+      "start_btc": 1283747.86,
+      "end_btc": 1108963.63,
+      "status": "so far",
+      "through": "2026-10-01"
+    },
+    {
+      "group": "month",
+      "label": "OCT 2026",
+      "net_btc": -174784.24,
+      "start_btc": 1283747.86,
+      "end_btc": 1108963.63,
+      "status": "so far",
+      "through": "2026-10-01"
+    }
+  ]
+}
