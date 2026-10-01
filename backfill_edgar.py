@@ -56,6 +56,7 @@ FUNDS = [
     ("EZBC", "Franklin Bitcoin ETF", None),  # registrant: Franklin Templeton Digital Holdings Trust
     ("BTCO", "Invesco Galaxy Bitcoin ETF", None),
     ("BTCW", "WisdomTree Bitcoin Fund", 1850391),
+    ("MSBT", "Morgan Stanley Bitcoin Trust", 2103612),  # launched 2026-04-08
 ]
 
 FORMS = ("10-Q", "10-K", "10-Q/A", "10-K/A")
@@ -268,7 +269,7 @@ def doc_text(ed, cik, accn, doc):
     for t in soup(["script", "style"]):
         t.decompose()
     text = soup.get_text(" ")
-    text = text.replace("\xa0", " ")
+    text = text.replace("\xa0", " ").replace("\u200b", "")  # MSBT pads its tables with zero-width spaces
     return re.sub(r"\s+", " ", text), url
 
 

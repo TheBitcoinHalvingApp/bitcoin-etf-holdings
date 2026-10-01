@@ -107,3 +107,4 @@ date,ticker,btc,shares_outstanding,fair_value_usd,form,accession,method
 2026-06-30,GBTC,138505.75680424,178580100,8136546000,10-Q,0001588489-26-000005,"doc:schedule-of-investments (xbrl us-gaap:InvestmentOwnedBalanceContracts[Number] agrees, rounded)"
 2026-06-30,HODL,16241,57425000,958827545,10-Q,0000930413-26-002505,doc:schedule-of-investments
 2026-06-30,IBIT,734261,1296040000,43395920710,10-Q,0001437749-26-026004,doc:schedule-of-investments
+2026-06-30,MSBT,5059.30771216,17650000,299012624,10-Q,0001104659-26-095885,doc:schedule-of-investments

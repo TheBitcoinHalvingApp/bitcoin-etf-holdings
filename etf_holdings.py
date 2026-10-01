@@ -421,6 +421,50 @@ def estimate_btcw():
               f"(Nasdaq market cap / last price, {stamp}); WisdomTree's site blocks automated readers")
     return est, dt.date.today().isoformat(), "https://api.nasdaq.com/api/quote/BTCW/summary?assetclass=etf", method
 
+# --- Morgan Stanley MSBT (launched 2026-04-08) --------------------------------
+# Morgan Stanley's site answers data-center addresses with an Akamai "Access
+# Denied" page, so the fund is anchored to its own 10-Q schedule of investments
+# (history_quarterly.csv, written by backfill_edgar.py) and shares outstanding
+# from Nasdaq, the same way as BTCW. The direct read is tried first in case the
+# wall ever comes down.
+MSBT_ANCHOR = {"btc": 5059.30771216, "shares": 17_650_000, "date": "2026-06-30", "fee": 0.0014}
+
+def quarter_anchor(ticker, default):
+    """The newest quarter end for `ticker` in history_quarterly.csv, else the typed constant."""
+    a = dict(default)
+    try:
+        with open(QUARTERLY_CSV) as fh:
+            rows = [r for r in csv.DictReader(fh) if r["ticker"] == ticker and r.get("btc") and r.get("shares_outstanding")]
+        if rows:
+            r = max(rows, key=lambda r: r["date"])
+            if r["date"] >= a["date"]:
+                a.update({"btc": float(r["btc"]), "shares": int(float(r["shares_outstanding"])), "date": r["date"]})
+    except Exception as e:
+        print(f"   history_quarterly.csv not used for {ticker} anchor: {e}", file=sys.stderr)
+    return a
+
+def fetch_msbt():
+    url = "https://www.morganstanley.com/im/en-us/individual-investor/products/etfs/digital-assets/morgan-stanley-bitcoin-trust.html"
+    text, _ = browser_page(url, wait_text="Bitcoin", max_wait=45)
+    if "Access Denied" in text or "don't have permission" in text:
+        raise RuntimeError("Morgan Stanley's site refused the request (Akamai Access Denied)")
+    m = (re.search(r"(?:Total )?Bitcoin(?: Held)?(?: in Trust)?\s*\n?\s*([\d,]{4,}\.?\d*)", text)
+         or re.search(r"([\d,]{4,}\.?\d*)\s*BTC", text))
+    if not m:
+        raise RuntimeError("could not find a bitcoin holdings figure on Morgan Stanley's page")
+    d = re.search(r"as of\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.I)
+    return num(m.group(1)), iso_date(d.group(1)) if d else "", url, "morganstanley.com product page"
+
+def estimate_msbt():
+    a = quarter_anchor("MSBT", MSBT_ANCHOR)
+    bps = _decayed_bps(a["btc"] / a["shares"], a["date"], a["fee"])
+    shares, stamp = nasdaq_shares("MSBT")
+    est = shares * bps
+    method = (f"ESTIMATE: {a['btc']:,.2f} BTC / {a['shares']:,} shares at {a['date']} (10-Q schedule of investments; "
+              f"bitcoin per share less the {a['fee']*100:.2f}% fee since) x {shares:,} shares outstanding "
+              f"(Nasdaq market cap / last price, {stamp}); Morgan Stanley's site blocks automated readers")
+    return est, dt.date.today().isoformat(), "https://api.nasdaq.com/api/quote/MSBT/summary?assetclass=etf", method
+
 def with_fallback(direct, fallback):
     """Try the issuer's page; if it is walled, estimate from filings and flag it."""
     def run():
@@ -448,7 +492,7 @@ def fetch_defi():
     return num(m.group(1)), iso_date(d.group(1)) if d else "", url, "playwright: hashdex-etfs.com holdings table"
 
 
-# All eleven US spot bitcoin ETFs. Eight read the issuer's own file or page every
+# All twelve US spot bitcoin ETFs. Eight read the issuer's own file or page every
 # morning. Grayscale GBTC and BTC and WisdomTree BTCW try the issuer's page first
 # (some addresses pass their bot checks, some do not) and fall back to an estimate
 # anchored to the trusts' own SEC filings, flagged "estimated". Hashdex DEFI was
@@ -465,9 +509,99 @@ FUNDS = [
     ("GBTC", "Grayscale",             "Grayscale Bitcoin Trust ETF",          with_fallback(fetch_gbtc, lambda: estimate_grayscale("GBTC", 1588489, 0.015))),
     ("BTC",  "Grayscale",             "Grayscale Bitcoin Mini Trust ETF",     with_fallback(fetch_btc_mini, lambda: estimate_grayscale("BTC", 2015034, 0.0015))),
     ("BTCW", "WisdomTree",            "WisdomTree Bitcoin Fund",              with_fallback(fetch_btcw, estimate_btcw)),
+    ("MSBT", "Morgan Stanley",        "Morgan Stanley Bitcoin Trust ETP",      with_fallback(fetch_msbt, estimate_msbt)),  # launched 2026-04-08
 ]
 NOT_COVERED = "Hashdex DEFI (liquidated August 2026)"
 HISTORY_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.csv")
+
+
+# HIST: the start of the ETF era. Grayscale's trust held this much bitcoin on
+# 2023-12-31, eleven days before it and the nine new funds began trading as
+# ETFs (GBTC 10-K for 2023, filed 2024-02-23, XBRL InvestmentOwnedBalanceContracts).
+# Every other fund held nothing. So 2024's net is the 2024-12-31 total less this.
+GBTC_2023_12_31 = 619525.92917
+QUARTERLY_CSV = os.path.join(HERE, "history_quarterly.csv")
+
+
+def flow_periods(today_total, today):
+    """Net bitcoin added by year, by quarter (this year) and by month (this
+    year): exact at quarter ends from the trusts' SEC filings
+    (history_quarterly.csv), from the daily reads otherwise, and "so far" for
+    the period that contains today. Missing data means a period is left out,
+    never guessed."""
+    exact = {}
+    if os.path.exists(QUARTERLY_CSV):
+        with open(QUARTERLY_CSV) as f:
+            for r in csv.DictReader(f):
+                try:
+                    exact[r["date"]] = exact.get(r["date"], 0.0) + float(r["btc"])
+                except (KeyError, ValueError):
+                    pass
+    daily = {}
+    if os.path.exists(HISTORY_CSV):
+        with open(HISTORY_CSV) as f:
+            for r in csv.DictReader(f):
+                try:
+                    daily[r["date"]] = float(r["total_btc"])
+                except (KeyError, ValueError):
+                    pass
+    daily[today] = float(today_total)
+    year = int(today[:4])
+
+    def total_at(end):
+        """(total, how) at a period end: exact filing, else the last daily read
+        within three days before it, else None."""
+        if end in exact:
+            return exact[end], "exact"
+        d = dt.date.fromisoformat(end)
+        for back in range(0, 4):
+            k = (d - dt.timedelta(days=back)).isoformat()
+            if k in daily:
+                return daily[k], "daily"
+        return None, ""
+
+    def period(label, start_end, end, group):
+        if start_end == "2023-12-31":
+            start, s_how = GBTC_2023_12_31, "exact"
+        else:
+            start, s_how = total_at(start_end)
+        if start is None:
+            return None
+        if end >= today:
+            finish, f_how = float(today_total), "so far"
+        else:
+            finish, f_how = total_at(end)
+        if finish is None:
+            return None
+        status = "so far" if f_how == "so far" else ("exact" if s_how == "exact" and f_how == "exact" else "daily")
+        return {"group": group, "label": label, "net_btc": round(finish - start, 2),
+                "start_btc": round(start, 2), "end_btc": round(finish, 2), "status": status,
+                "through": today if status == "so far" else end}
+
+    out = []
+    for y in range(2024, year + 1):
+        p = period(str(y), f"{y - 1}-12-31", f"{y}-12-31", "year")
+        if p:
+            out.append(p)
+    q_ends = [f"{year}-03-31", f"{year}-06-30", f"{year}-09-30", f"{year}-12-31"]
+    q_starts = [f"{year - 1}-12-31"] + q_ends[:3]
+    for i in range(4):
+        if q_starts[i] >= today:
+            break
+        p = period(f"Q{i + 1} {year}", q_starts[i], q_ends[i], "quarter")
+        if p:
+            out.append(p)
+    names = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+    for m in range(1, 13):
+        first = dt.date(year, m, 1)
+        if first.isoformat() > today:
+            break
+        last = (dt.date(year + 1, 1, 1) if m == 12 else dt.date(year, m + 1, 1)) - dt.timedelta(days=1)
+        prev_end = (first - dt.timedelta(days=1)).isoformat()
+        p = period(f"{names[m - 1]} {year}", prev_end, last.isoformat(), "month")
+        if p:
+            out.append(p)
+    return out
 
 
 def main():
@@ -475,6 +609,17 @@ def main():
     if os.path.exists(PREV_JSON):
         try:
             with open(PREV_JSON) as f:
+                previous = json.load(f)
+        except Exception:
+            previous = None
+    # SAMEDAY: a second run on the same day (a manual run, a re-run) must still
+    # compare against the last different day, not against this morning's file,
+    # or the change column would show a few hours of drift as a day's flow.
+    today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    baseline_path = os.path.join(HERE, "etf_baseline.json")
+    if previous and previous.get("generated_at", "")[:10] == today:
+        try:
+            with open(baseline_path) as f:
                 previous = json.load(f)
         except Exception:
             previous = None
@@ -492,7 +637,14 @@ def main():
             time.sleep(PAUSE_BETWEEN_ISSUERS)
         rec = {"ticker": ticker, "issuer": issuer, "name": name}
         try:
-            got = fn()
+            # RETRY: one second try after a short pause; this morning's FBTC miss
+            # was a transient network error that passed on the next attempt.
+            try:
+                got = fn()
+            except Exception as first:
+                print(f"{ticker:5s} first try failed ({type(first).__name__}); retrying in 20 s", file=sys.stderr)
+                time.sleep(20)
+                got = fn()
             btc, as_of, source, method = got[0], got[1], got[2], got[3]
             estimated = len(got) > 4 and bool(got[4])
             rec.update({"btc": round(float(btc), 8), "as_of": as_of, "source": source, "method": method})
@@ -529,26 +681,78 @@ def main():
     out["stale"] = sum(1 for r in ok if r.get("stale"))
     out["estimated"] = sum(1 for r in ok if r.get("estimated"))
     out["not_covered"] = NOT_COVERED
+    out["universe"] = len(FUNDS)  # how many US spot funds exist; the app's "N of M"
     if previous:
         out["previous_generated_at"] = previous.get("generated_at", "")
 
     with open(OUT_JSON, "w") as f:
         json.dump(out, f, indent=2)
+    # SAMEDAY: the baseline is the last file from a different day; it moves
+    # forward only on the first run of a day.
+    if previous is not None and previous.get("generated_at", "")[:10] != today:
+        with open(baseline_path, "w") as f:
+            json.dump(previous, f, indent=2)
     shutil.copyfile(OUT_JSON, PREV_JSON)
-    # One line a day of history, for charts later: date, total, then each fund in FUNDS order.
+    # One line a day of history, for charts later: date, total, then each fund
+    # in FUNDS order. SAMEDAY: a second run on the same day replaces that day's line.
     try:
-        new_file = not os.path.exists(HISTORY_CSV)
-        with open(HISTORY_CSV, "a") as h:
-            if new_file:
-                h.write("date,total_btc," + ",".join(t for t, _, _, _ in FUNDS) + "\n")
-            by = {r["ticker"]: r for r in results}
-            cells = [out["generated_at"][:10], f"{out['total_btc']:.4f}"]
-            for t, _, _, _ in FUNDS:
-                v = by.get(t, {}).get("btc")
-                cells.append("" if v is None else f"{v:.4f}")
-            h.write(",".join(cells) + "\n")
+        header = "date,total_btc," + ",".join(t for t, _, _, _ in FUNDS)
+        lines = []
+        if os.path.exists(HISTORY_CSV):
+            with open(HISTORY_CSV) as h:
+                lines = [ln.rstrip("\n") for ln in h if ln.strip()]
+        if not lines or not lines[0].startswith("date,"):
+            lines = [header] + lines
+        day = out["generated_at"][:10]
+        lines = [ln for ln in lines if not ln.startswith(day + ",")]
+        seen = {}
+        for ln in lines[1:]:  # one line per date; the later one wins
+            seen[ln.split(",", 1)[0]] = ln
+        lines = [lines[0]] + [seen[k] for k in sorted(seen)]
+        by = {r["ticker"]: r for r in results}
+        cells = [day, f"{out['total_btc']:.4f}"]
+        for t, _, _, _ in FUNDS:
+            v = by.get(t, {}).get("btc")
+            cells.append("" if v is None else f"{v:.4f}")
+        lines.append(",".join(cells))
+        with open(HISTORY_CSV, "w") as h:
+            h.write("\n".join(lines) + "\n")
     except Exception as e:
         print(f"history.csv not written: {e}", file=sys.stderr)
+    # FLOWS: one entry a day of net buying or selling across the funds that were
+    # read fresh that morning (not estimated, not carried forward), for the app's
+    # "last days" rows. Kept for the last 60 days; today's entry replaces itself.
+    try:
+        flows_path = os.path.join(HERE, "flows.json")
+        flows = []
+        if os.path.exists(flows_path):
+            with open(flows_path) as f:
+                loaded = json.load(f)
+            flows = loaded.get("days", []) if isinstance(loaded, dict) else loaded
+        day = out["generated_at"][:10]
+        flows = [e for e in flows if e.get("date") != day]
+        fresh = [r for r in results if isinstance(r.get("change_btc"), (int, float))
+                 and not r.get("estimated") and not r.get("stale")]
+        if fresh:
+            net = sum(r["change_btc"] for r in fresh)
+            big = max(fresh, key=lambda r: abs(r["change_btc"]))
+            flows.append({
+                "date": day,
+                "net_btc": round(net, 4),
+                "counted": len(fresh),
+                "up": sum(1 for r in fresh if r["change_btc"] > 0),
+                "down": sum(1 for r in fresh if r["change_btc"] < 0),
+                "biggest_ticker": big["ticker"],
+                "biggest_change": round(big["change_btc"], 4),
+                "funds": {r["ticker"]: round(r["change_btc"], 4) for r in fresh},
+            })
+        flows.sort(key=lambda e: e["date"])
+        flows = flows[-60:]
+        periods = flow_periods(out["total_btc"], day)
+        with open(flows_path, "w") as f:
+            json.dump({"days": flows, "periods": periods}, f, indent=2)
+    except Exception as e:
+        print(f"flows.json not written: {e}", file=sys.stderr)
     print(f"wrote {OUT_JSON}: ok={out['ok']} failed={out['failed']} total_btc={out['total_btc']:,.2f}",
           file=sys.stderr)
     return 0
