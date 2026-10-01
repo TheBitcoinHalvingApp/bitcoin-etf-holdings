@@ -469,6 +469,23 @@ def estimate_msbt():
               f"(Nasdaq market cap / last price, {stamp}); Morgan Stanley's site blocks automated readers")
     return est, dt.date.today().isoformat(), "https://api.nasdaq.com/api/quote/MSBT/summary?assetclass=etf", method
 
+# --- Fidelity FBTC ------------------------------------------------------------
+# Fidelity's quote dashboard renders an empty page for GitHub's runners (it
+# reads fine from other addresses). Same anchor method as BTCW and MSBT, checked
+# against a live read on 2026-10-01: estimate 182,308 vs 183,167 read (0.5% low,
+# Nasdaq's rounded market cap).
+FBTC_ANCHOR = {"btc": 174383.0, "shares": 200_328_476, "date": "2026-06-30", "fee": 0.0025}
+
+def estimate_fbtc():
+    a = quarter_anchor("FBTC", FBTC_ANCHOR)
+    bps = _decayed_bps(a["btc"] / a["shares"], a["date"], a["fee"])
+    shares, stamp = nasdaq_shares("FBTC")
+    est = shares * bps
+    method = (f"ESTIMATE: {a['btc']:,.0f} BTC / {a['shares']:,} shares at {a['date']} (10-Q schedule of investments; "
+              f"bitcoin per share less the {a['fee']*100:.2f}% fee since) x {shares:,} shares outstanding "
+              f"(Nasdaq market cap / last price, {stamp}); Fidelity's dashboard served an empty page")
+    return est, dt.date.today().isoformat(), "https://api.nasdaq.com/api/quote/FBTC/summary?assetclass=etf", method
+
 def with_fallback(direct, fallback):
     """Try the issuer's page; if it is walled, estimate from filings and flag it."""
     def run():
@@ -503,7 +520,7 @@ def fetch_defi():
 # liquidated in August 2026.
 FUNDS = [
     ("IBIT", "BlackRock iShares",     "iShares Bitcoin Trust ETF",            fetch_ibit),
-    ("FBTC", "Fidelity",              "Fidelity Wise Origin Bitcoin Fund",    fetch_fbtc),
+    ("FBTC", "Fidelity",              "Fidelity Wise Origin Bitcoin Fund",    with_fallback(fetch_fbtc, estimate_fbtc)),
     ("ARKB", "ARK 21Shares",          "ARK 21Shares Bitcoin ETF",             fetch_arkb),
     ("BITB", "Bitwise",               "Bitwise Bitcoin ETF",                  fetch_bitb),
     ("HODL", "VanEck",                "VanEck Bitcoin ETF",                   fetch_hodl),
