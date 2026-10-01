@@ -544,6 +544,18 @@ GBTC_2023_12_31 = 619525.92917
 QUARTERLY_CSV = os.path.join(HERE, "history_quarterly.csv")
 
 
+def trading_day(run_date):
+    """The trading day a morning read reflects: the issuers post the prior
+    close, so a weekday run is the day before and a weekend or Monday run is
+    the Friday. Labelling flows this way lines them up with the trading-day
+    tables everyone else publishes (a Tuesday-morning read is Monday's flow)."""
+    d = dt.date.fromisoformat(run_date)
+    d -= dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= dt.timedelta(days=1)
+    return d.isoformat()
+
+
 def flow_periods(today_funds, today):
     """Net bitcoin added by year, by quarter and by month (this year) and over
     the last 7 and 30 days. Period ends come from the trusts' SEC filings at
@@ -573,7 +585,8 @@ def flow_periods(today_funds, today):
                         except ValueError:
                             pass
                 if row and r.get("date"):
-                    daily[r["date"]] = row
+                    daily[trading_day(r["date"])] = row  # later rows for the same trading day win
+    today = trading_day(today)  # the close this morning's read reflects
     daily[today] = dict(today_funds)
     year = int(today[:4])
 
@@ -829,7 +842,7 @@ def main():
             with open(flows_path) as f:
                 loaded = json.load(f)
             flows = loaded.get("days", []) if isinstance(loaded, dict) else loaded
-        day = out["generated_at"][:10]
+        day = trading_day(out["generated_at"][:10])  # the close this read reflects
         flows = [e for e in flows if e.get("date") != day]
         fresh = [r for r in results if isinstance(r.get("change_btc"), (int, float))
                  and not r.get("estimated") and not r.get("stale")]
@@ -848,7 +861,7 @@ def main():
             })
         flows.sort(key=lambda e: e["date"])
         flows = flows[-60:]
-        periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0}, day)
+        periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0}, out["generated_at"][:10])
         with open(flows_path, "w") as f:
             json.dump({"days": flows, "periods": periods}, f, indent=2)
     except Exception as e:
