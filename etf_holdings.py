@@ -644,7 +644,18 @@ def main():
             with open(baseline_path) as f:
                 previous = json.load(f)  # the change column compares against the last different day
         except Exception:
-            previous = None  # no baseline yet (first same-day run after the upgrade): no change column today
+            previous = None
+            # No baseline yet (first same-day run after the upgrade): the last
+            # morning before today in history.csv stands in for it.
+            try:
+                with open(HISTORY_CSV) as f:
+                    rows = [r for r in csv.DictReader(f) if r.get("date", "") < today]
+                if rows:
+                    last = rows[-1]
+                    previous = {"generated_at": last["date"] + "T00:00:00Z",
+                                "funds": [{"ticker": t, "btc": float(last[t])} for t, _, _, _ in FUNDS if last.get(t)]}
+            except Exception as e:
+                print(f"history.csv not used as baseline: {e}", file=sys.stderr)
     prev_by_ticker = {}
     prev_rec = {}
     if previous:
