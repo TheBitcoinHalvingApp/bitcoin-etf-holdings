@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-01T21:59:40Z",
+  "generated_at": "2026-10-01T22:18:37Z",
   "funds": [
     {
       "ticker": "IBIT",
@@ -15,12 +15,12 @@
       "ticker": "FBTC",
       "issuer": "Fidelity",
       "name": "Fidelity Wise Origin Bitcoin Fund",
-      "btc": 181912.34005079,
+      "btc": 181887.67404628,
       "as_of": "2026-10-01",
       "source": "https://api.nasdaq.com/api/quote/FBTC/summary?assetclass=etf",
-      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 209,111,390 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 5:56 PM ET); Fidelity's dashboard served an empty page",
+      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 209,083,036 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 6:15 PM ET); Fidelity's dashboard served an empty page",
       "estimated": true,
-      "change_btc": -2885.43724921
+      "change_btc": -2910.10325372
     },
     {
       "ticker": "ARKB",
@@ -108,29 +108,28 @@
       "ticker": "BTCW",
       "issuer": "WisdomTree",
       "name": "WisdomTree Bitcoin Fund",
-      "btc": 2028.08075556,
-      "as_of": "2026-10-01",
-      "source": "https://api.nasdaq.com/api/quote/BTCW/summary?assetclass=etf",
-      "method": "ESTIMATE: 2,310 BTC / 2,185,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 1,919,560 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 5:58 PM ET); WisdomTree's site blocks automated readers",
-      "estimated": true,
-      "change_btc": 3.08075556
+      "btc": 2025.0,
+      "as_of": "2026-09-30",
+      "source": "https://www.wisdomtree.com/investments/etfs/crypto/btcw",
+      "method": "wisdomtree product page",
+      "change_btc": 0.0
     },
     {
       "ticker": "MSBT",
       "issuer": "Morgan Stanley",
       "name": "Morgan Stanley Bitcoin Trust ETP",
-      "btc": 10218.25136185,
+      "btc": 10287.67754073,
       "as_of": "2026-10-01",
       "source": "https://api.nasdaq.com/api/quote/MSBT/summary?assetclass=etf",
-      "method": "ESTIMATE: 5,059.31 BTC / 17,650,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.14% fee since) x 35,660,319 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 5:59 PM ET); Morgan Stanley's site blocks automated readers",
+      "method": "ESTIMATE: 5,059.31 BTC / 17,650,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.14% fee since) x 35,902,607 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 6:18 PM ET); Morgan Stanley's site blocks automated readers",
       "estimated": true
     }
   ],
-  "total_btc": 1290795.94055089,
+  "total_btc": 1290837.6199697,
   "ok": 12,
   "failed": 0,
   "stale": 0,
-  "estimated": 5,
+  "estimated": 4,
   "not_covered": "Hashdex DEFI (liquidated August 2026)",
   "universe": 12,
   "previous_generated_at": "2026-09-30T00:00:00Z"
