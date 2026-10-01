@@ -173,10 +173,12 @@ def fetch_ibit():
 def fetch_fbtc():
     """Fidelity: quote dashboard shows 'Total bitcoin in fund' (needs a browser)."""
     url = "https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC"
-    text, _ = browser_page(url, wait_text="Total bitcoin in fund")
+    text, _ = browser_page(url, wait_text="Total bitcoin in fund", max_wait=75)
     m = re.search(r"Total bitcoin in fund\s*\n\s*As of\s+([A-Za-z]{3}-\d{2}-\d{4})\s*\n\s*([\d,]+\.?\d*)", text)
     if not m:
-        raise RuntimeError("'Total bitcoin in fund' not found on Fidelity dashboard")
+        # Say what Fidelity served instead, so the log explains a refusal.
+        head = re.sub(r"\s+", " ", text)[:300]
+        raise RuntimeError(f"'Total bitcoin in fund' not found on Fidelity dashboard; page began: {head!r}")
     return num(m.group(2)), iso_date(m.group(1)), url, \
         "playwright: Fidelity quote dashboard, 'Total bitcoin in fund' field"
 
