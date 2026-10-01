@@ -22,9 +22,9 @@
     {
       "group": "year",
       "label": "2026",
-      "net_btc": -188936.55,
+      "net_btc": -4138.77,
       "start_btc": 1297900.18,
-      "end_btc": 1108963.63,
+      "end_btc": 1293761.41,
       "status": "so far",
       "through": "2026-10-01"
     },
@@ -58,18 +58,18 @@
     {
       "group": "quarter",
       "label": "Q4 2026",
-      "net_btc": -174784.24,
+      "net_btc": 10013.54,
       "start_btc": 1283747.86,
-      "end_btc": 1108963.63,
+      "end_btc": 1293761.41,
       "status": "so far",
       "through": "2026-10-01"
     },
     {
       "group": "month",
       "label": "OCT 2026",
-      "net_btc": -174784.24,
+      "net_btc": 10013.54,
       "start_btc": 1283747.86,
-      "end_btc": 1108963.63,
+      "end_btc": 1293761.41,
       "status": "so far",
       "through": "2026-10-01"
     }
