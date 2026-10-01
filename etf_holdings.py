@@ -544,34 +544,44 @@ GBTC_2023_12_31 = 619525.92917
 QUARTERLY_CSV = os.path.join(HERE, "history_quarterly.csv")
 
 
-def flow_periods(today_total, today):
-    """Net bitcoin added by year, by quarter (this year) and by month (this
-    year): exact at quarter ends from the trusts' SEC filings
-    (history_quarterly.csv), from the daily reads otherwise, and "so far" for
-    the period that contains today. Missing data means a period is left out,
-    never guessed."""
+def flow_periods(today_funds, today):
+    """Net bitcoin added by year, by quarter and by month (this year) and over
+    the last 7 and 30 days. Period ends come from the trusts' SEC filings at
+    quarter ends (history_quarterly.csv), from the daily reads otherwise, and
+    from today's file for the period that holds today. Every net is summed
+    fund by fund over the funds present at BOTH ends, so a fund launching
+    (MSBT, April 2026) or closing never shows up as a flow. Missing data means
+    a period is left out, never guessed."""
     exact = {}
     if os.path.exists(QUARTERLY_CSV):
         with open(QUARTERLY_CSV) as f:
             for r in csv.DictReader(f):
                 try:
-                    exact[r["date"]] = exact.get(r["date"], 0.0) + float(r["btc"])
+                    exact.setdefault(r["date"], {})[r["ticker"]] = float(r["btc"])
                 except (KeyError, ValueError):
                     pass
     daily = {}
     if os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV) as f:
             for r in csv.DictReader(f):
-                try:
-                    daily[r["date"]] = float(r["total_btc"])
-                except (KeyError, ValueError):
-                    pass
-    daily[today] = float(today_total)
+                row = {}
+                for t, _, _, _ in FUNDS:
+                    v = r.get(t)
+                    if v:
+                        try:
+                            row[t] = float(v)
+                        except ValueError:
+                            pass
+                if row and r.get("date"):
+                    daily[r["date"]] = row
+    daily[today] = dict(today_funds)
     year = int(today[:4])
 
-    def total_at(end):
-        """(total, how) at a period end: exact filing, else the last daily read
-        within three days before it, else None."""
+    def at(end):
+        """(per-fund holdings, how) at a date: exact filing, else the last daily
+        read within three days before it, else None."""
+        if end == "2023-12-31":
+            return {"GBTC": GBTC_2023_12_31}, "exact"
         if end in exact:
             return exact[end], "exact"
         d = dt.date.fromisoformat(end)
@@ -581,23 +591,31 @@ def flow_periods(today_total, today):
                 return daily[k], "daily"
         return None, ""
 
+    def net_between(a, b):
+        common = [t for t in b if t in a]
+        return sum(b[t] - a[t] for t in common), len(common)
+
     def period(label, start_end, end, group):
-        if start_end == "2023-12-31":
-            start, s_how = GBTC_2023_12_31, "exact"
-        else:
-            start, s_how = total_at(start_end)
+        start, s_how = at(start_end)
         if start is None:
             return None
         if end >= today:
-            finish, f_how = float(today_total), "so far"
+            finish, f_how = dict(today_funds), "so far"
         else:
-            finish, f_how = total_at(end)
+            finish, f_how = at(end)
         if finish is None:
             return None
+        # 2024: every fund other than GBTC began at zero on launch
+        if start_end == "2023-12-31":
+            start = {t: start.get(t, 0.0) for t in finish}
+        net, n = net_between(start, finish)
+        if n == 0:
+            return None
         status = "so far" if f_how == "so far" else ("exact" if s_how == "exact" and f_how == "exact" else "daily")
-        return {"group": group, "label": label, "net_btc": round(finish - start, 2),
-                "start_btc": round(start, 2), "end_btc": round(finish, 2), "status": status,
-                "through": today if status == "so far" else end}
+        return {"group": group, "label": label, "net_btc": round(net, 2),
+                "start_btc": round(sum(start[t] for t in finish if t in start), 2),
+                "end_btc": round(sum(finish[t] for t in finish if t in start), 2),
+                "funds": n, "status": status, "through": today if status == "so far" else end}
 
     out = []
     for y in range(2024, year + 1):
@@ -622,6 +640,22 @@ def flow_periods(today_total, today):
         p = period(f"{names[m - 1]} {year}", prev_end, last.isoformat(), "month")
         if p:
             out.append(p)
+    # Rolling windows from the daily reads. Until the history is that long, the
+    # window starts at the first morning on record and the entry says so.
+    earlier = sorted(k for k in daily if k < today)
+    for label, days in (("Last 7 days", 7), ("Last 30 days", 30)):
+        if not earlier:
+            break
+        target = (dt.date.fromisoformat(today) - dt.timedelta(days=days)).isoformat()
+        at_or_before = [k for k in earlier if k <= target]
+        start_key = at_or_before[-1] if at_or_before else earlier[0]
+        net, n = net_between(daily[start_key], today_funds)
+        if n == 0:
+            continue
+        out.append({"group": "window", "label": label, "net_btc": round(net, 2),
+                    "start_btc": round(sum(daily[start_key][t] for t in today_funds if t in daily[start_key]), 2),
+                    "end_btc": round(sum(today_funds[t] for t in today_funds if t in daily[start_key]), 2),
+                    "funds": n, "status": "daily" if at_or_before else "short", "through": today, "since": start_key})
     return out
 
 
@@ -756,6 +790,19 @@ def main():
                 lines = [ln.rstrip("\n") for ln in h if ln.strip()]
         if not lines or not lines[0].startswith("date,"):
             lines = [header] + lines
+        if lines[0] != header:
+            # A fund was added (MSBT): re-key every old row onto the new header.
+            old_cols = lines[0].split(",")
+            new_cols = header.split(",")
+            # rows written by a newer script under the old header carry the new
+            # funds as extra cells, in FUNDS order
+            keyed = old_cols + [c for c in new_cols if c not in old_cols]
+            fixed = [header]
+            for ln in lines[1:]:
+                cells = ln.split(",")
+                m = dict(zip(keyed, cells))
+                fixed.append(",".join(m.get(c, "") for c in new_cols))
+            lines = fixed
         day = out["generated_at"][:10]
         lines = [ln for ln in lines if not ln.startswith(day + ",")]
         seen = {}
@@ -801,7 +848,7 @@ def main():
             })
         flows.sort(key=lambda e: e["date"])
         flows = flows[-60:]
-        periods = flow_periods(out["total_btc"], day)
+        periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0}, day)
         with open(flows_path, "w") as f:
             json.dump({"days": flows, "periods": periods}, f, indent=2)
     except Exception as e:
