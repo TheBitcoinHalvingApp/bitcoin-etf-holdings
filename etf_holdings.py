@@ -87,7 +87,9 @@ def _browser():
         cands = sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome"))
         if cands:
             exe = cands[-1]
-        kw = {"headless": True, "args": ["--disable-blink-features=AutomationControlled"]}
+        # --disable-http2: Fidelity's edge answers GitHub's runners with
+        # ERR_HTTP2_PROTOCOL_ERROR; over HTTP/1.1 the same page loads.
+        kw = {"headless": True, "args": ["--disable-blink-features=AutomationControlled", "--disable-http2"]}
         if exe:
             kw["executable_path"] = exe
         _PW["browser"] = _PW["pw"].chromium.launch(**kw)
@@ -617,19 +619,40 @@ def main():
     # or the change column would show a few hours of drift as a day's flow.
     today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     baseline_path = os.path.join(HERE, "etf_baseline.json")
+    newest = previous  # the last file written, whatever day: the carry-forward source
     if previous and previous.get("generated_at", "")[:10] == today:
         try:
             with open(baseline_path) as f:
-                previous = json.load(f)
+                previous = json.load(f)  # the change column compares against the last different day
         except Exception:
-            previous = None
+            previous = None  # no baseline yet (first same-day run after the upgrade): no change column today
     prev_by_ticker = {}
     prev_rec = {}
     if previous:
         for fnd in previous.get("funds", []):
             if isinstance(fnd.get("btc"), (int, float)):
                 prev_by_ticker[fnd["ticker"]] = fnd["btc"]
+    if newest:
+        for fnd in newest.get("funds", []):
+            if isinstance(fnd.get("btc"), (int, float)) and fnd.get("btc", 0) > 0:
                 prev_rec[fnd["ticker"]] = fnd
+    # A fund missing from the newest file (it failed and nothing carried) still
+    # has its last good morning in history.csv; carry from there, dated that day.
+    try:
+        if os.path.exists(HISTORY_CSV):
+            with open(HISTORY_CSV) as f:
+                hist = list(csv.DictReader(f))
+            for ticker, _, _, _ in FUNDS:
+                if ticker in prev_rec:
+                    continue
+                for row in reversed(hist):
+                    v = row.get(ticker, "")
+                    if v and float(v) > 0:
+                        prev_rec[ticker] = {"btc": float(v), "as_of": row["date"], "source": "history.csv",
+                                            "method": "last good morning read, from history.csv"}
+                        break
+    except Exception as e:
+        print(f"history.csv not used for carry-forward: {e}", file=sys.stderr)
 
     results = []
     for i, (ticker, issuer, name, fn) in enumerate(FUNDS):
