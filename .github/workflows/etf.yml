@@ -43,5 +43,7 @@ jobs:
           git config user.name "etf-bot"
           git config user.email "etf-bot@users.noreply.github.com"
           git add etf.json etf_previous.json history.csv history_quarterly.csv mirror
+          test -f flows.json && git add flows.json
+          test -f etf_baseline.json && git add etf_baseline.json
           git diff --cached --quiet && echo "No change" || git commit -m "ETF holdings $(date -u +%F)"
           git push
