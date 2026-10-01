@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-09-30T00:00:00Z",
+  "funds": [
+    {
+      "ticker": "IBIT",
+      "btc": 801146.6526
+    },
+    {
+      "ticker": "FBTC",
+      "btc": 184797.7773
+    },
+    {
+      "ticker": "ARKB",
+      "btc": 34578.0
+    },
+    {
+      "ticker": "BITB",
+      "btc": 38088.91
+    },
+    {
+      "ticker": "HODL",
+      "btc": 14726.0
+    },
+    {
+      "ticker": "BRRR",
+      "btc": 5704.4352
+    },
+    {
+      "ticker": "EZBC",
+      "btc": 5603.61
+    },
+    {
+      "ticker": "BTCO",
+      "btc": 5102.3317
+    },
+    {
+      "ticker": "GBTC",
+      "btc": 133096.0075
+    },
+    {
+      "ticker": "BTC",
+      "btc": 58879.1397
+    },
+    {
+      "ticker": "BTCW",
+      "btc": 2025.0
+    }
+  ]
+}
