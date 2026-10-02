@@ -18,24 +18,6 @@
         "BTCO": 0.0,
         "BTCW": 0.0
       }
-    },
-    {
-      "date": "2026-10-01",
-      "net_btc": -282.0651,
-      "counted": 7,
-      "up": 0,
-      "down": 3,
-      "biggest_ticker": "BITB",
-      "biggest_change": -168.8,
-      "funds": {
-        "IBIT": -113.2261,
-        "ARKB": 0.0,
-        "BITB": -168.8,
-        "HODL": 0.0,
-        "BRRR": -0.039,
-        "EZBC": 0.0,
-        "BTCO": 0.0
-      }
     }
   ],
   "periods": [
@@ -62,9 +44,9 @@
     {
       "group": "year",
       "label": "2026",
-      "net_btc": -15590.28,
+      "net_btc": -14659.25,
       "start_btc": 1297900.18,
-      "end_btc": 1282309.9,
+      "end_btc": 1283240.93,
       "funds": 11,
       "status": "so far",
       "through": "2026-09-30"
@@ -92,23 +74,12 @@
     {
       "group": "quarter",
       "label": "Q3 2026",
-      "net_btc": 82446.39,
+      "net_btc": 83377.42,
       "start_btc": 1210299.4,
-      "end_btc": 1292745.79,
+      "end_btc": 1293676.82,
       "funds": 12,
       "status": "so far",
       "through": "2026-09-30"
-    },
-    {
-      "group": "window",
-      "label": "Since the first read",
-      "net_btc": 1022.45,
-      "start_btc": 1097552.68,
-      "end_btc": 1098575.13,
-      "funds": 10,
-      "status": "short",
-      "through": "2026-09-30",
-      "since": "2026-09-28"
     }
   ]
 }

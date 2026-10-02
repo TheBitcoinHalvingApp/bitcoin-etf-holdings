@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T00:52:28Z",
+  "generated_at": "2026-10-02T01:22:27Z",
   "funds": [
     {
       "ticker": "IBIT",
@@ -15,10 +15,10 @@
       "ticker": "FBTC",
       "issuer": "Fidelity",
       "name": "Fidelity Wise Origin Bitcoin Fund",
-      "btc": 183734.77411486,
+      "btc": 184665.80370383,
       "as_of": "2026-10-02",
       "source": "https://api.nasdaq.com/api/quote/FBTC/summary?assetclass=etf",
-      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 211,207,758 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 7:58 PM ET); Fidelity's dashboard served an empty page",
+      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 212,278,000 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026); Fidelity's dashboard served an empty page",
       "estimated": true
     },
     {
@@ -38,7 +38,7 @@
       "btc": 37838.72,
       "as_of": "2026-09-30",
       "source": "https://bitbetf.com/",
-      "method": "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust' (Proof of Reserves 'Trust Net Assets' shows 38,083 BTC)",
+      "method": "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust' (Proof of Reserves 'Trust Net Assets' shows 37,920 BTC)",
       "change_btc": -250.19
     },
     {
@@ -122,7 +122,7 @@
       "estimated": true
     }
   ],
-  "total_btc": 1292745.7929116,
+  "total_btc": 1293676.82250057,
   "ok": 12,
   "failed": 0,
   "stale": 0,
