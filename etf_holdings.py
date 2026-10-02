@@ -553,15 +553,14 @@ def eastern_date(generated_at):
 
 
 def run_trading_day(generated_at):
-    """The trading day a run's figures reflect. A weekday run at or after
-    7 pm Eastern reads that day's close (the issuers post it in the evening);
-    any other run reads the previous business day's close."""
-    from zoneinfo import ZoneInfo
-    t = dt.datetime.strptime(generated_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc)
-    e = t.astimezone(ZoneInfo("America/New_York"))
-    if e.weekday() < 5 and e.hour >= 19:
-        return e.date().isoformat()
-    return trading_day(e.date().isoformat())
+    """The trading day a run's figures reflect: the previous business day of
+    the run's US Eastern date. Checked on 2026-10-01: at 6 pm Eastern every
+    issuer's file still showed the previous close (iShares' as-of date said so;
+    Bitwise's and ARK's figures matched Farside's previous-day line). Bitwise
+    posts the new day between 6 and 9 pm and iShares the next afternoon, so
+    the one daily pull is scheduled at 6 pm Eastern (22:00 UTC) and nothing
+    later, which keeps every fund on the same day."""
+    return trading_day(eastern_date(generated_at))
 
 
 def file_trading_day(file):
@@ -605,10 +604,10 @@ def flow_periods(today_funds, today, today_stale=None):
         with open(HISTORY_CSV) as f:
             for r in csv.DictReader(f):
                 row = {}
-                stale = {x.split("=")[0] for x in (r.get("flags") or "").split() if x.endswith("=s")}
+                stale = {x.split("=")[0] for x in (r.get("flags") or "").split()}  # =s carried forward, =e estimated
                 for t, _, _, _ in FUNDS:
                     v = r.get(t)
-                    if v and t not in stale:  # a carried-forward figure is not that day's reading
+                    if v and t not in stale:  # only funds read fresh take part in day-based math
                         try:
                             row[t] = float(v)
                         except ValueError:
@@ -813,10 +812,7 @@ def main():
         # a fresh read against a fresh read, or an estimate against an estimate.
         # Estimate-against-carried-forward is the difference between two methods,
         # not a flow, so it is left blank.
-        kind = "stale" if rec.get("stale") else ("estimate" if rec.get("estimated") else "read")
-        if previous and ticker in prev_by_ticker and rec.get("btc") is not None and kind != "stale" \
-                and prev_kind.get(ticker, "read") == kind:
-            rec["change_btc"] = round(rec["btc"] - prev_by_ticker[ticker], 8)
+        # (change_btc is filled in below from history.csv, the one record keyed by trading day)
         results.append(rec)
 
     close_browser()
@@ -838,14 +834,9 @@ def main():
     if previous:
         out["previous_generated_at"] = previous.get("generated_at", "")
 
-    with open(OUT_JSON, "w") as f:
-        json.dump(out, f, indent=2)
-    # SAMEDAY: the baseline is the last file from a different day; it moves
-    # forward only on the first run of a day.
     if previous is not None and file_trading_day(previous) != this_td:
         with open(baseline_path, "w") as f:
             json.dump(previous, f, indent=2)
-    shutil.copyfile(OUT_JSON, PREV_JSON)
     # One line a day of history, for charts later: date, total, then each fund
     # in FUNDS order. SAMEDAY: a second run on the same day replaces that day's line.
     try:
@@ -893,35 +884,66 @@ def main():
     # FLOWS: one entry a day of net buying or selling across the funds that were
     # read fresh that morning (not estimated, not carried forward), for the app's
     # "last days" rows. Kept for the last 60 days; today's entry replaces itself.
+    # The daily flows are rebuilt from history.csv every run (keyed by trading
+    # day, with flags), so they heal themselves whenever a row is replaced by a
+    # fuller read of the same day. Only funds read fresh at BOTH ends count:
+    # an estimate moves with Nasdaq's rounded market cap, not with buying.
+    flows = []
+    try:
+        rows = []
+        with open(HISTORY_CSV) as f:
+            for r in csv.DictReader(f):
+                if r.get("date"):
+                    rows.append(r)
+        rows.sort(key=lambda r: r["date"])
+
+        def fresh_values(r):
+            bad = {x.split("=")[0] for x in (r.get("flags") or "").split()}  # =s or =e
+            vals = {}
+            for t, _, _, _ in FUNDS:
+                v = r.get(t)
+                if v and t not in bad:
+                    try:
+                        vals[t] = float(v)
+                    except ValueError:
+                        pass
+            return vals
+
+        for i in range(1, len(rows)):
+            a, b = fresh_values(rows[i - 1]), fresh_values(rows[i])
+            changes = {t: round(b[t] - a[t], 4) for t in b if t in a}
+            if not changes:
+                continue
+            net = sum(changes.values())
+            big = max(changes, key=lambda t: abs(changes[t]))
+            flows.append({
+                "date": rows[i]["date"],
+                "net_btc": round(net, 4),
+                "counted": len(changes),
+                "universe": len(FUNDS),
+                "up": sum(1 for v in changes.values() if v > 0),
+                "down": sum(1 for v in changes.values() if v < 0),
+                "biggest_ticker": big,
+                "biggest_change": changes[big],
+                "funds": changes,
+            })
+        flows = flows[-60:]
+        # today's per-fund change in etf.json, from the same two rows
+        if flows and flows[-1]["date"] == this_td:
+            for rec in results:
+                if rec["ticker"] in flows[-1]["funds"]:
+                    rec["change_btc"] = flows[-1]["funds"][rec["ticker"]]
+    except Exception as e:
+        print(f"daily flows not built: {e}", file=sys.stderr)
+
+    with open(OUT_JSON, "w") as f:
+        json.dump(out, f, indent=2)
+    shutil.copyfile(OUT_JSON, PREV_JSON)
     try:
         flows_path = os.path.join(HERE, "flows.json")
-        flows = []
-        if os.path.exists(flows_path):
-            with open(flows_path) as f:
-                loaded = json.load(f)
-            flows = loaded.get("days", []) if isinstance(loaded, dict) else loaded
-        day = this_td  # the close this read reflects
-        flows = [e for e in flows if e.get("date") < day]  # today's entry replaces itself; a mislabelled later date is dropped
-        fresh = [r for r in results if isinstance(r.get("change_btc"), (int, float))
-                 and not r.get("estimated") and not r.get("stale")]
-        if fresh:
-            net = sum(r["change_btc"] for r in fresh)
-            big = max(fresh, key=lambda r: abs(r["change_btc"]))
-            flows.append({
-                "date": day,
-                "net_btc": round(net, 4),
-                "counted": len(fresh),
-                "up": sum(1 for r in fresh if r["change_btc"] > 0),
-                "down": sum(1 for r in fresh if r["change_btc"] < 0),
-                "biggest_ticker": big["ticker"],
-                "biggest_change": round(big["change_btc"], 4),
-                "funds": {r["ticker"]: round(r["change_btc"], 4) for r in fresh},
-            })
-        flows.sort(key=lambda e: e["date"])
-        flows = flows[-60:]
         periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0},
                                this_td,
-                               {r["ticker"]: r for r in results if r.get("stale")})
+                               {r["ticker"]: r for r in results if r.get("stale") or r.get("estimated")})
         with open(flows_path, "w") as f:
             json.dump({"days": flows, "periods": periods}, f, indent=2)
     except Exception as e:
