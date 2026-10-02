@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T00:34:33Z",
+  "generated_at": "2026-10-02T00:52:28Z",
   "funds": [
     {
       "ticker": "IBIT",
@@ -15,10 +15,10 @@
       "ticker": "FBTC",
       "issuer": "Fidelity",
       "name": "Fidelity Wise Origin Bitcoin Fund",
-      "btc": 181781.42507438,
+      "btc": 183734.77411486,
       "as_of": "2026-10-02",
       "source": "https://api.nasdaq.com/api/quote/FBTC/summary?assetclass=etf",
-      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 208,962,334 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 7:49 PM ET); Fidelity's dashboard served an empty page",
+      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 211,207,758 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026 7:58 PM ET); Fidelity's dashboard served an empty page",
       "estimated": true
     },
     {
@@ -35,11 +35,11 @@
       "ticker": "BITB",
       "issuer": "Bitwise",
       "name": "Bitwise Bitcoin ETF",
-      "btc": 37920.11,
-      "as_of": "2026-09-29",
+      "btc": 37838.72,
+      "as_of": "2026-09-30",
       "source": "https://bitbetf.com/",
       "method": "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust' (Proof of Reserves 'Trust Net Assets' shows 38,083 BTC)",
-      "change_btc": -168.8
+      "change_btc": -250.19
     },
     {
       "ticker": "HODL",
@@ -105,11 +105,11 @@
       "ticker": "BTCW",
       "issuer": "WisdomTree",
       "name": "WisdomTree Bitcoin Fund",
-      "btc": 2054.94489253,
-      "as_of": "2026-10-02",
-      "source": "https://api.nasdaq.com/api/quote/BTCW/summary?assetclass=etf",
-      "method": "ESTIMATE: 2,310 BTC / 2,185,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 1,945,000 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026); WisdomTree's site blocks automated readers",
-      "estimated": true
+      "btc": 2025.0,
+      "as_of": "2026-10-01",
+      "source": "https://www.wisdomtree.com/investments/etfs/crypto/btcw",
+      "method": "wisdomtree product page",
+      "change_btc": 0.0
     },
     {
       "ticker": "MSBT",
@@ -122,11 +122,11 @@
       "estimated": true
     }
   ],
-  "total_btc": 1290903.77876365,
+  "total_btc": 1292745.7929116,
   "ok": 12,
   "failed": 0,
   "stale": 0,
-  "estimated": 5,
+  "estimated": 4,
   "not_covered": "Hashdex DEFI (liquidated August 2026)",
   "universe": 12,
   "holdings_date": "2026-09-30",
