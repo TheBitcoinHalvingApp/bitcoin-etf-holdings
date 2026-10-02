@@ -552,6 +552,25 @@ def eastern_date(generated_at):
     return t.astimezone(ZoneInfo("America/New_York")).date().isoformat()
 
 
+def run_trading_day(generated_at):
+    """The trading day a run's figures reflect. A weekday run at or after
+    7 pm Eastern reads that day's close (the issuers post it in the evening);
+    any other run reads the previous business day's close."""
+    from zoneinfo import ZoneInfo
+    t = dt.datetime.strptime(generated_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc)
+    e = t.astimezone(ZoneInfo("America/New_York"))
+    if e.weekday() < 5 and e.hour >= 19:
+        return e.date().isoformat()
+    return trading_day(e.date().isoformat())
+
+
+def file_trading_day(file):
+    """The trading day an earlier etf.json reflects (older files lack the field)."""
+    if file.get("holdings_date"):
+        return file["holdings_date"]
+    return run_trading_day(file.get("generated_at", "2026-01-01T12:00:00Z"))
+
+
 def trading_day(run_date):
     """The trading day a read reflects: the issuers post the prior close, so a
     weekday run is the day before and a weekend or Monday run is the Friday.
@@ -595,8 +614,7 @@ def flow_periods(today_funds, today, today_stale=None):
                         except ValueError:
                             pass
                 if row and r.get("date"):
-                    daily[trading_day(r["date"])] = row  # later rows for the same trading day win
-    today = trading_day(today)  # the close this read reflects
+                    daily[r["date"]] = row  # keyed by trading day
     daily[today] = {t: v for t, v in today_funds.items() if t not in (today_stale or {})}
     year = int(today[:4])
 
@@ -622,7 +640,7 @@ def flow_periods(today_funds, today, today_stale=None):
         start, s_how = at(start_end)
         if start is None:
             return None
-        if end >= today:
+        if end > today:  # a period whose last day is this trading day is complete, not "so far"
             finish, f_how = dict(today_funds), "so far"
         else:
             finish, f_how = at(end)
@@ -701,24 +719,31 @@ def main():
     # SAMEDAY: a second run on the same day (a manual run, a re-run) must still
     # compare against the last different day, not against this morning's file,
     # or the change column would show a few hours of drift as a day's flow.
-    today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    run_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    this_td = run_trading_day(run_at)  # the close this run's figures reflect
     baseline_path = os.path.join(HERE, "etf_baseline.json")
     newest = previous  # the last file written, whatever day: the carry-forward source
-    if previous and previous.get("generated_at", "")[:10] == today:
+    if previous and file_trading_day(previous) == this_td:
+        # Same trading day as the last file (an evening read followed by the
+        # morning read, or a manual re-run): compare against the day before.
         try:
             with open(baseline_path) as f:
-                previous = json.load(f)  # the change column compares against the last different day
+                previous = json.load(f)
+            if file_trading_day(previous) == this_td:
+                previous = None
         except Exception:
             previous = None
-            # No baseline yet (first same-day run after the upgrade): the last
-            # morning before today in history.csv stands in for it.
-            try:
+        if previous is None:
+            try:  # history.csv is keyed by trading day; the last row before this one stands in
                 with open(HISTORY_CSV) as f:
-                    rows = [r for r in csv.DictReader(f) if r.get("date", "") < today]
+                    rows = [r for r in csv.DictReader(f) if r.get("date", "") < this_td]
                 if rows:
                     last = rows[-1]
-                    previous = {"generated_at": last["date"] + "T00:00:00Z",
-                                "funds": [{"ticker": t, "btc": float(last[t])} for t, _, _, _ in FUNDS if last.get(t)]}
+                    stale_t = {x.split("=")[0] for x in (last.get("flags") or "").split() if x.endswith("=s")}
+                    est_t = {x.split("=")[0] for x in (last.get("flags") or "").split() if x.endswith("=e")}
+                    previous = {"generated_at": last["date"] + "T12:00:00Z", "holdings_date": last["date"],
+                                "funds": [{"ticker": t, "btc": float(last[t]), "stale": t in stale_t, "estimated": t in est_t}
+                                          for t, _, _, _ in FUNDS if last.get(t)]}
             except Exception as e:
                 print(f"history.csv not used as baseline: {e}", file=sys.stderr)
     prev_by_ticker = {}
@@ -798,7 +823,7 @@ def main():
 
     ok = [r for r in results if r.get("btc") is not None]
     out = {
-        "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": run_at,  # set before the reads so the trading day and the stamp agree
         "funds": results,
         "total_btc": round(sum(r["btc"] for r in ok), 8),
         "ok": len(ok),
@@ -808,7 +833,8 @@ def main():
     out["estimated"] = sum(1 for r in ok if r.get("estimated"))
     out["not_covered"] = NOT_COVERED
     out["universe"] = len(FUNDS)  # how many US spot funds exist; the app's "N of M"
-    out["holdings_date"] = trading_day(eastern_date(out["generated_at"]))  # the close these figures reflect
+    out["holdings_date"] = this_td  # the close these figures reflect
+    out["read_date"] = eastern_date(out["generated_at"])  # the US Eastern date of the read
     if previous:
         out["previous_generated_at"] = previous.get("generated_at", "")
 
@@ -816,7 +842,7 @@ def main():
         json.dump(out, f, indent=2)
     # SAMEDAY: the baseline is the last file from a different day; it moves
     # forward only on the first run of a day.
-    if previous is not None and previous.get("generated_at", "")[:10] != today:
+    if previous is not None and file_trading_day(previous) != this_td:
         with open(baseline_path, "w") as f:
             json.dump(previous, f, indent=2)
     shutil.copyfile(OUT_JSON, PREV_JSON)
@@ -843,7 +869,7 @@ def main():
                 m = dict(zip(keyed, cells))
                 fixed.append(",".join(m.get(c, "") for c in new_cols))
             lines = fixed
-        day = out["generated_at"][:10]
+        day = this_td  # rows are keyed by the trading day they reflect; a later read of the same day replaces the row
         lines = [ln for ln in lines if not ln.startswith(day + ",")]
         seen = {}
         for ln in lines[1:]:  # one line per date; the later one wins
@@ -874,7 +900,7 @@ def main():
             with open(flows_path) as f:
                 loaded = json.load(f)
             flows = loaded.get("days", []) if isinstance(loaded, dict) else loaded
-        day = trading_day(eastern_date(out["generated_at"]))  # the close this read reflects
+        day = this_td  # the close this read reflects
         flows = [e for e in flows if e.get("date") < day]  # today's entry replaces itself; a mislabelled later date is dropped
         fresh = [r for r in results if isinstance(r.get("change_btc"), (int, float))
                  and not r.get("estimated") and not r.get("stale")]
@@ -894,7 +920,7 @@ def main():
         flows.sort(key=lambda e: e["date"])
         flows = flows[-60:]
         periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0},
-                               eastern_date(out["generated_at"]),
+                               this_td,
                                {r["ticker"]: r for r in results if r.get("stale")})
         with open(flows_path, "w") as f:
             json.dump({"days": flows, "periods": periods}, f, indent=2)
