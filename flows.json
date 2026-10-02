@@ -3,7 +3,7 @@
     {
       "date": "2026-10-01",
       "net_btc": -282.0651,
-      "counted": 8,
+      "counted": 7,
       "up": 0,
       "down": 3,
       "biggest_ticker": "BITB",
@@ -15,8 +15,7 @@
         "HODL": 0.0,
         "BRRR": -0.039,
         "EZBC": 0.0,
-        "BTCO": 0.0,
-        "BTCW": 0.0
+        "BTCO": 0.0
       }
     }
   ],
@@ -44,9 +43,9 @@
     {
       "group": "year",
       "label": "2026",
-      "net_btc": -17350.24,
+      "net_btc": -17919.99,
       "start_btc": 1297900.18,
-      "end_btc": 1280549.94,
+      "end_btc": 1279980.19,
       "funds": 11,
       "status": "so far",
       "through": "2026-10-01"
@@ -74,54 +73,54 @@
     {
       "group": "quarter",
       "label": "Q3 2026",
-      "net_btc": 78507.77,
-      "start_btc": 1205240.09,
-      "end_btc": 1283747.86,
-      "funds": 11,
+      "net_btc": 80538.22,
+      "start_btc": 1210299.4,
+      "end_btc": 1290837.62,
+      "funds": 12,
       "status": "daily",
       "through": "2026-09-30"
     },
     {
       "group": "quarter",
       "label": "Q4 2026",
-      "net_btc": -3197.92,
-      "start_btc": 1283747.86,
-      "end_btc": 1280549.94,
-      "funds": 11,
+      "net_btc": -584.6,
+      "start_btc": 1290837.62,
+      "end_btc": 1290253.02,
+      "funds": 12,
       "status": "so far",
       "through": "2026-10-01"
     },
     {
       "group": "month",
       "label": "OCT 2026",
-      "net_btc": -3197.92,
-      "start_btc": 1283747.86,
-      "end_btc": 1280549.94,
-      "funds": 11,
+      "net_btc": -584.6,
+      "start_btc": 1290837.62,
+      "end_btc": 1290253.02,
+      "funds": 12,
       "status": "so far",
       "through": "2026-10-01"
     },
     {
       "group": "window",
       "label": "Last 7 days",
-      "net_btc": -1800.51,
+      "net_btc": -2370.27,
       "start_btc": 1282350.46,
-      "end_btc": 1280549.94,
+      "end_btc": 1279980.19,
       "funds": 11,
       "status": "short",
       "through": "2026-10-01",
-      "since": "2026-09-29"
+      "since": "2026-09-28"
     },
     {
       "group": "window",
       "label": "Last 30 days",
-      "net_btc": -1800.51,
+      "net_btc": -2370.27,
       "start_btc": 1282350.46,
-      "end_btc": 1280549.94,
+      "end_btc": 1279980.19,
       "funds": 11,
       "status": "short",
       "through": "2026-10-01",
-      "since": "2026-09-29"
+      "since": "2026-09-28"
     }
   ]
 }
