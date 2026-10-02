@@ -544,11 +544,20 @@ GBTC_2023_12_31 = 619525.92917
 QUARTERLY_CSV = os.path.join(HERE, "history_quarterly.csv")
 
 
+def eastern_date(generated_at):
+    """The US Eastern calendar date of a run (the issuers work on New York
+    time; a run at 8 pm Eastern is still that day's read, not tomorrow's)."""
+    from zoneinfo import ZoneInfo
+    t = dt.datetime.strptime(generated_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc)
+    return t.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+
+
 def trading_day(run_date):
-    """The trading day a morning read reflects: the issuers post the prior
-    close, so a weekday run is the day before and a weekend or Monday run is
-    the Friday. Labelling flows this way lines them up with the trading-day
-    tables everyone else publishes (a Tuesday-morning read is Monday's flow)."""
+    """The trading day a read reflects: the issuers post the prior close, so a
+    weekday run is the day before and a weekend or Monday run is the Friday.
+    Labelling flows this way lines them up with the trading-day tables everyone
+    else publishes (a Tuesday-morning read is Monday's flow). `run_date` is the
+    US Eastern date (see eastern_date)."""
     d = dt.date.fromisoformat(run_date)
     d -= dt.timedelta(days=1)
     while d.weekday() >= 5:
@@ -556,7 +565,7 @@ def trading_day(run_date):
     return d.isoformat()
 
 
-def flow_periods(today_funds, today):
+def flow_periods(today_funds, today, today_stale=None):
     """Net bitcoin added by year, by quarter and by month (this year) and over
     the last 7 and 30 days. Period ends come from the trusts' SEC filings at
     quarter ends (history_quarterly.csv), from the daily reads otherwise, and
@@ -577,17 +586,18 @@ def flow_periods(today_funds, today):
         with open(HISTORY_CSV) as f:
             for r in csv.DictReader(f):
                 row = {}
+                stale = {x.split("=")[0] for x in (r.get("flags") or "").split() if x.endswith("=s")}
                 for t, _, _, _ in FUNDS:
                     v = r.get(t)
-                    if v:
+                    if v and t not in stale:  # a carried-forward figure is not that day's reading
                         try:
                             row[t] = float(v)
                         except ValueError:
                             pass
                 if row and r.get("date"):
                     daily[trading_day(r["date"])] = row  # later rows for the same trading day win
-    today = trading_day(today)  # the close this morning's read reflects
-    daily[today] = dict(today_funds)
+    today = trading_day(today)  # the close this read reflects
+    daily[today] = {t: v for t, v in today_funds.items() if t not in (today_stale or {})}
     year = int(today[:4])
 
     def at(end):
@@ -656,19 +666,30 @@ def flow_periods(today_funds, today):
     # Rolling windows from the daily reads. Until the history is that long, the
     # window starts at the first morning on record and the entry says so.
     earlier = sorted(k for k in daily if k < today)
-    for label, days in (("Last 7 days", 7), ("Last 30 days", 30)):
-        if not earlier:
-            break
-        target = (dt.date.fromisoformat(today) - dt.timedelta(days=days)).isoformat()
-        at_or_before = [k for k in earlier if k <= target]
-        start_key = at_or_before[-1] if at_or_before else earlier[0]
+    def window(label, start_key, status):
         net, n = net_between(daily[start_key], today_funds)
         if n == 0:
-            continue
-        out.append({"group": "window", "label": label, "net_btc": round(net, 2),
-                    "start_btc": round(sum(daily[start_key][t] for t in today_funds if t in daily[start_key]), 2),
-                    "end_btc": round(sum(today_funds[t] for t in today_funds if t in daily[start_key]), 2),
-                    "funds": n, "status": "daily" if at_or_before else "short", "through": today, "since": start_key})
+            return None
+        return {"group": "window", "label": label, "net_btc": round(net, 2),
+                "start_btc": round(sum(daily[start_key][t] for t in today_funds if t in daily[start_key]), 2),
+                "end_btc": round(sum(today_funds[t] for t in today_funds if t in daily[start_key]), 2),
+                "funds": n, "status": status, "through": today, "since": start_key}
+    if earlier:
+        shown = 0
+        for label, days in (("Last 7 days", 7), ("Last 30 days", 30)):
+            target = (dt.date.fromisoformat(today) - dt.timedelta(days=days)).isoformat()
+            at_or_before = [k for k in earlier if k <= target]
+            if not at_or_before:
+                continue  # the record is not that long yet; no row rather than a misleading one
+            w = window(label, at_or_before[-1], "daily")
+            if w:
+                out.append(w)
+                shown += 1
+        if shown == 0:
+            # Fewer than seven days on record: one honest row from the first read.
+            w = window("Since the first read", earlier[0], "short")
+            if w:
+                out.append(w)
     return out
 
 
@@ -704,11 +725,13 @@ def main():
             except Exception as e:
                 print(f"history.csv not used as baseline: {e}", file=sys.stderr)
     prev_by_ticker = {}
+    prev_kind = {}  # "read" / "estimate" / "stale" on the baseline day
     prev_rec = {}
     if previous:
         for fnd in previous.get("funds", []):
             if isinstance(fnd.get("btc"), (int, float)):
                 prev_by_ticker[fnd["ticker"]] = fnd["btc"]
+                prev_kind[fnd["ticker"]] = "stale" if fnd.get("stale") else ("estimate" if fnd.get("estimated") else "read")
     if newest:
         for fnd in newest.get("funds", []):
             if isinstance(fnd.get("btc"), (int, float)) and fnd.get("btc", 0) > 0:
@@ -764,7 +787,13 @@ def main():
                 print(f"{ticker:5s} carried forward {old['btc']:,.4f} BTC as of {old.get('as_of','?')}", file=sys.stderr)
             else:
                 rec.update({"btc": None, "as_of": "", "source": "", "method": "", "error": err})
-        if previous and ticker in prev_by_ticker and rec.get("btc") is not None and not rec.get("stale"):
+        # A day's change is only meaningful between two figures of the same kind:
+        # a fresh read against a fresh read, or an estimate against an estimate.
+        # Estimate-against-carried-forward is the difference between two methods,
+        # not a flow, so it is left blank.
+        kind = "stale" if rec.get("stale") else ("estimate" if rec.get("estimated") else "read")
+        if previous and ticker in prev_by_ticker and rec.get("btc") is not None and kind != "stale" \
+                and prev_kind.get(ticker, "read") == kind:
             rec["change_btc"] = round(rec["btc"] - prev_by_ticker[ticker], 8)
         results.append(rec)
 
@@ -782,6 +811,7 @@ def main():
     out["estimated"] = sum(1 for r in ok if r.get("estimated"))
     out["not_covered"] = NOT_COVERED
     out["universe"] = len(FUNDS)  # how many US spot funds exist; the app's "N of M"
+    out["holdings_date"] = trading_day(eastern_date(out["generated_at"]))  # the close these figures reflect
     if previous:
         out["previous_generated_at"] = previous.get("generated_at", "")
 
@@ -796,7 +826,7 @@ def main():
     # One line a day of history, for charts later: date, total, then each fund
     # in FUNDS order. SAMEDAY: a second run on the same day replaces that day's line.
     try:
-        header = "date,total_btc," + ",".join(t for t, _, _, _ in FUNDS)
+        header = "date,total_btc," + ",".join(t for t, _, _, _ in FUNDS) + ",flags"
         lines = []
         if os.path.exists(HISTORY_CSV):
             with open(HISTORY_CSV) as h:
@@ -827,6 +857,11 @@ def main():
         for t, _, _, _ in FUNDS:
             v = by.get(t, {}).get("btc")
             cells.append("" if v is None else f"{v:.4f}")
+        # flags: which funds were carried forward (s) or estimated (e) that morning,
+        # so the period math can leave a stale figure out of a daily comparison
+        flags = " ".join(t + ("=s" if by.get(t, {}).get("stale") else "=e") for t, _, _, _ in FUNDS
+                         if by.get(t, {}).get("stale") or by.get(t, {}).get("estimated"))
+        cells.append(flags)
         lines.append(",".join(cells))
         with open(HISTORY_CSV, "w") as h:
             h.write("\n".join(lines) + "\n")
@@ -842,7 +877,7 @@ def main():
             with open(flows_path) as f:
                 loaded = json.load(f)
             flows = loaded.get("days", []) if isinstance(loaded, dict) else loaded
-        day = trading_day(out["generated_at"][:10])  # the close this read reflects
+        day = trading_day(eastern_date(out["generated_at"]))  # the close this read reflects
         flows = [e for e in flows if e.get("date") != day]
         fresh = [r for r in results if isinstance(r.get("change_btc"), (int, float))
                  and not r.get("estimated") and not r.get("stale")]
@@ -861,7 +896,9 @@ def main():
             })
         flows.sort(key=lambda e: e["date"])
         flows = flows[-60:]
-        periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0}, out["generated_at"][:10])
+        periods = flow_periods({r["ticker"]: r["btc"] for r in results if isinstance(r.get("btc"), (int, float)) and r["btc"] > 0},
+                               eastern_date(out["generated_at"]),
+                               {r["ticker"]: r for r in results if r.get("stale")})
         with open(flows_path, "w") as f:
             json.dump({"days": flows, "periods": periods}, f, indent=2)
     except Exception as e:
