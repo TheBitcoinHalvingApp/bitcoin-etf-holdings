@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T01:43:45Z",
+  "generated_at": "2026-10-02T02:08:53Z",
   "funds": [
     {
       "ticker": "IBIT",
@@ -9,7 +9,7 @@
       "as_of": "2026-09-30",
       "source": "https://www.ishares.com/us/products/333011/ishares-bitcoin-trust-etf/latest-holdings.csv",
       "method": "requests: iShares latest-holdings.csv, BTC row, Quantity column",
-      "change_btc": 0.0
+      "change_btc": -113.2261
     },
     {
       "ticker": "FBTC",
@@ -19,8 +19,7 @@
       "as_of": "2026-10-02",
       "source": "https://api.nasdaq.com/api/quote/FBTC/summary?assetclass=etf",
       "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 212,278,000 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026); Fidelity's dashboard served an empty page",
-      "estimated": true,
-      "change_btc": 0.0
+      "estimated": true
     },
     {
       "ticker": "ARKB",
@@ -40,7 +39,7 @@
       "as_of": "2026-09-30",
       "source": "https://bitbetf.com/",
       "method": "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust' (Proof of Reserves 'Trust Net Assets' shows 37,920 BTC)",
-      "change_btc": 0.0
+      "change_btc": -250.19
     },
     {
       "ticker": "HODL",
@@ -60,7 +59,7 @@
       "as_of": "2026-10-01",
       "source": "https://www-api.coinshares.com/api/v2/Widgets?ApiKey=094DA478-140C-4E3E-B394-7A19BBE8326B&names=VALKYRIE_HOLDINGS_BRRR",
       "method": "requests: CoinShares widgets API VALKYRIE_HOLDINGS_BRRR (feeds coinshares.com/us/etf/brrr), BITCOIN 'shares'",
-      "change_btc": 0.0
+      "change_btc": -0.039
     },
     {
       "ticker": "EZBC",
@@ -90,8 +89,7 @@
       "as_of": "2026-07-30",
       "source": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001588489.json",
       "method": "ESTIMATE from SEC filings: 138,505.76 BTC / 178,580,100 shares at 2026-06-30 (bitcoin per share, less the 1.50% fee accrued since) x 172,260,100 shares outstanding on the 2026-07-30 10-Q cover; Grayscale's site blocks automated readers",
-      "estimated": true,
-      "change_btc": 0.0
+      "estimated": true
     },
     {
       "ticker": "BTC",
@@ -101,8 +99,7 @@
       "as_of": "2026-07-30",
       "source": "https://data.sec.gov/api/xbrl/companyfacts/CIK0002015034.json",
       "method": "ESTIMATE from SEC filings: 54,280.40 BTC / 122,749,963 shares at 2026-06-30 (bitcoin per share, less the 0.15% fee accrued since) x 133,199,963 shares outstanding on the 2026-07-30 10-Q cover; Grayscale's site blocks automated readers",
-      "estimated": true,
-      "change_btc": 0.0
+      "estimated": true
     },
     {
       "ticker": "BTCW",
@@ -111,8 +108,7 @@
       "btc": 2025.0,
       "as_of": "2026-10-01",
       "source": "https://www.wisdomtree.com/investments/etfs/crypto/btcw",
-      "method": "wisdomtree product page",
-      "change_btc": 0.0
+      "method": "wisdomtree product page"
     },
     {
       "ticker": "MSBT",
@@ -122,8 +118,7 @@
       "as_of": "2026-10-02",
       "source": "https://api.nasdaq.com/api/quote/MSBT/summary?assetclass=etf",
       "method": "ESTIMATE: 5,059.31 BTC / 17,650,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.14% fee since) x 36,420,000 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026); Morgan Stanley's site blocks automated readers",
-      "estimated": true,
-      "change_btc": 0.0
+      "estimated": true
     }
   ],
   "total_btc": 1293676.82250057,
@@ -133,7 +128,7 @@
   "estimated": 4,
   "not_covered": "Hashdex DEFI (liquidated August 2026)",
   "universe": 12,
-  "holdings_date": "2026-10-01",
+  "holdings_date": "2026-09-30",
   "read_date": "2026-10-01",
-  "previous_generated_at": "2026-10-02T01:22:27Z"
+  "previous_generated_at": "2026-10-02T01:43:45Z"
 }
