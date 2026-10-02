@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T02:08:53Z",
+  "generated_at": "2026-10-02T02:23:23Z",
   "funds": [
     {
       "ticker": "IBIT",
@@ -39,7 +39,7 @@
       "as_of": "2026-09-30",
       "source": "https://bitbetf.com/",
       "method": "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust' (Proof of Reserves 'Trust Net Assets' shows 37,920 BTC)",
-      "change_btc": -250.19
+      "change_btc": -168.8
     },
     {
       "ticker": "HODL",

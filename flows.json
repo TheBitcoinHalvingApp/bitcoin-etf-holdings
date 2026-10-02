@@ -2,17 +2,17 @@
   "days": [
     {
       "date": "2026-09-30",
-      "net_btc": -363.4551,
+      "net_btc": -282.0651,
       "counted": 7,
       "universe": 12,
       "up": 0,
       "down": 3,
       "biggest_ticker": "BITB",
-      "biggest_change": -250.19,
+      "biggest_change": -168.8,
       "funds": {
         "IBIT": -113.2261,
         "ARKB": 0.0,
-        "BITB": -250.19,
+        "BITB": -168.8,
         "HODL": 0.0,
         "BRRR": -0.039,
         "EZBC": 0.0,
