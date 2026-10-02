@@ -861,6 +861,14 @@ def main():
                 fixed.append(",".join(m.get(c, "") for c in new_cols))
             lines = fixed
         day = this_td  # rows are keyed by the trading day they reflect; a later read of the same day replaces the row
+        # Only a read between 5 and 8 pm Eastern goes into the daily record:
+        # earlier, iShares has not posted the previous close; later, Bitwise has
+        # already posted the next one. A manual run at any other hour still
+        # refreshes etf.json but leaves history.csv alone.
+        from zoneinfo import ZoneInfo
+        hour_et = dt.datetime.strptime(run_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc).astimezone(ZoneInfo("America/New_York")).hour
+        if not (17 <= hour_et <= 19):
+            raise RuntimeError(f"run at {hour_et}:00 Eastern is outside the 5 to 8 pm window; daily record left unchanged")
         lines = [ln for ln in lines if not ln.startswith(day + ",")]
         seen = {}
         for ln in lines[1:]:  # one line per date; the later one wins
@@ -880,7 +888,7 @@ def main():
         with open(HISTORY_CSV, "w") as h:
             h.write("\n".join(lines) + "\n")
     except Exception as e:
-        print(f"history.csv not written: {e}", file=sys.stderr)
+        print(f"history.csv not written: {e}", file=sys.stderr)  # includes the deliberate off-hours skip
     # FLOWS: one entry a day of net buying or selling across the funds that were
     # read fresh that morning (not estimated, not carried forward), for the app's
     # "last days" rows. Kept for the last 60 days; today's entry replaces itself.
