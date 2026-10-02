@@ -685,11 +685,8 @@ def flow_periods(today_funds, today, today_stale=None):
             if w:
                 out.append(w)
                 shown += 1
-        if shown == 0:
-            # Fewer than seven days on record: one honest row from the first read.
-            w = window("Since the first read", earlier[0], "short")
-            if w:
-                out.append(w)
+        # Fewer than seven days on record: no window row at all (owner's rule:
+        # never show a period the data cannot fill).
     return out
 
 
@@ -878,7 +875,7 @@ def main():
                 loaded = json.load(f)
             flows = loaded.get("days", []) if isinstance(loaded, dict) else loaded
         day = trading_day(eastern_date(out["generated_at"]))  # the close this read reflects
-        flows = [e for e in flows if e.get("date") != day]
+        flows = [e for e in flows if e.get("date") < day]  # today's entry replaces itself; a mislabelled later date is dropped
         fresh = [r for r in results if isinstance(r.get("change_btc"), (int, float))
                  and not r.get("estimated") and not r.get("stale")]
         if fresh:
