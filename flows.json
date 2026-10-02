@@ -3,7 +3,7 @@
     {
       "date": "2026-09-30",
       "net_btc": -282.0651,
-      "counted": 7,
+      "counted": 9,
       "universe": 12,
       "up": 0,
       "down": 3,
@@ -16,7 +16,31 @@
         "HODL": 0.0,
         "BRRR": -0.039,
         "EZBC": 0.0,
-        "BTCO": 0.0
+        "BTCO": 0.0,
+        "GBTC": 0.0,
+        "BTC": 0.0
+      }
+    },
+    {
+      "date": "2026-10-01",
+      "net_btc": 1184.2074,
+      "counted": 10,
+      "universe": 12,
+      "up": 2,
+      "down": 5,
+      "biggest_ticker": "IBIT",
+      "biggest_change": 2309.6276,
+      "funds": {
+        "IBIT": 2309.6276,
+        "FBTC": -754.5348,
+        "ARKB": -91.0,
+        "BITB": -81.39,
+        "HODL": 0.0,
+        "BRRR": -0.0391,
+        "EZBC": 0.0,
+        "BTCO": 0.0,
+        "GBTC": -370.848,
+        "BTC": 172.3917
       }
     }
   ],
@@ -44,12 +68,12 @@
     {
       "group": "year",
       "label": "2026",
-      "net_btc": -14659.25,
+      "net_btc": -16747.99,
       "start_btc": 1297900.18,
-      "end_btc": 1283240.93,
+      "end_btc": 1281152.19,
       "funds": 11,
       "status": "so far",
-      "through": "2026-09-30"
+      "through": "2026-10-01"
     },
     {
       "group": "quarter",
@@ -74,12 +98,32 @@
     {
       "group": "quarter",
       "label": "Q3 2026",
-      "net_btc": 68540.55,
-      "start_btc": 838070.94,
-      "end_btc": 906611.48,
-      "funds": 8,
+      "net_btc": 74683.16,
+      "start_btc": 1205240.09,
+      "end_btc": 1279923.25,
+      "funds": 11,
       "status": "daily",
       "through": "2026-09-30"
+    },
+    {
+      "group": "quarter",
+      "label": "Q4 2026",
+      "net_btc": 1228.94,
+      "start_btc": 1279923.25,
+      "end_btc": 1281152.19,
+      "funds": 11,
+      "status": "so far",
+      "through": "2026-10-01"
+    },
+    {
+      "group": "month",
+      "label": "OCT 2026",
+      "net_btc": 1228.94,
+      "start_btc": 1279923.25,
+      "end_btc": 1281152.19,
+      "funds": 11,
+      "status": "so far",
+      "through": "2026-10-01"
     }
   ]
 }

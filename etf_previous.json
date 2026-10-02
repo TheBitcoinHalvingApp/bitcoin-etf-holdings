@@ -1,35 +1,35 @@
 {
-  "generated_at": "2026-10-02T02:23:23Z",
+  "generated_at": "2026-10-02T22:07:51Z",
   "funds": [
     {
       "ticker": "IBIT",
       "issuer": "BlackRock iShares",
       "name": "iShares Bitcoin Trust ETF",
-      "btc": 801033.4265,
-      "as_of": "2026-09-30",
+      "btc": 803343.0541,
+      "as_of": "2026-10-01",
       "source": "https://www.ishares.com/us/products/333011/ishares-bitcoin-trust-etf/latest-holdings.csv",
       "method": "requests: iShares latest-holdings.csv, BTC row, Quantity column",
-      "change_btc": -113.2261
+      "change_btc": 2309.6276
     },
     {
       "ticker": "FBTC",
       "issuer": "Fidelity",
       "name": "Fidelity Wise Origin Bitcoin Fund",
-      "btc": 184665.80370383,
-      "as_of": "2026-10-02",
-      "source": "https://api.nasdaq.com/api/quote/FBTC/summary?assetclass=etf",
-      "method": "ESTIMATE: 174,383 BTC / 200,328,476 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 212,278,000 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026); Fidelity's dashboard served an empty page",
-      "estimated": true
+      "btc": 182412.4488,
+      "as_of": "2026-10-01",
+      "source": "https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC",
+      "method": "requests: Fidelity research API (feeds the FBTC quote dashboard), cryptoDetails 'totalUnitPerCoin'",
+      "change_btc": -754.5348
     },
     {
       "ticker": "ARKB",
       "issuer": "ARK 21Shares",
       "name": "ARK 21Shares Bitcoin ETF",
-      "btc": 34578.0,
-      "as_of": "2026-10-01",
+      "btc": 34487.0,
+      "as_of": "2026-10-02",
       "source": "https://assets.ark-funds.com/fund-documents/funds-etf-csv/ARK_21SHARES_BITCOIN_ETF_ARKB_HOLDINGS.csv",
       "method": "requests: ARK daily holdings CSV, ticker BTC, 'shares' column",
-      "change_btc": 0.0
+      "change_btc": -91.0
     },
     {
       "ticker": "BITB",
@@ -39,14 +39,14 @@
       "as_of": "2026-09-30",
       "source": "https://bitbetf.com/",
       "method": "requests: bitbetf.com 'Fund Holdings' table, 'Bitcoin in Trust' (Proof of Reserves 'Trust Net Assets' shows 37,920 BTC)",
-      "change_btc": -168.8
+      "change_btc": -81.39
     },
     {
       "ticker": "HODL",
       "issuer": "VanEck",
       "name": "VanEck Bitcoin ETF",
       "btc": 14726.0,
-      "as_of": "2026-09-30",
+      "as_of": "2026-10-01",
       "source": "https://www.vaneck.com/Main/HoldingsBlock/GetContent/?blockid=348327&pageid=243755&ticker=HODL&reactlang=en&reactctr=us&epieditmode=false&latest=false&contextmode=Default",
       "method": "requests: VanEck HoldingsBlock JSON (feeds the HODL holdings page), Bitcoin row 'Shares'",
       "change_btc": 0.0
@@ -55,11 +55,11 @@
       "ticker": "BRRR",
       "issuer": "CoinShares Valkyrie",
       "name": "CoinShares Bitcoin ETF",
-      "btc": 5704.39615493,
-      "as_of": "2026-10-01",
+      "btc": 5704.35708346,
+      "as_of": "2026-10-02",
       "source": "https://www-api.coinshares.com/api/v2/Widgets?ApiKey=094DA478-140C-4E3E-B394-7A19BBE8326B&names=VALKYRIE_HOLDINGS_BRRR",
       "method": "requests: CoinShares widgets API VALKYRIE_HOLDINGS_BRRR (feeds coinshares.com/us/etf/brrr), BITCOIN 'shares'",
-      "change_btc": -0.039
+      "change_btc": -0.0391
     },
     {
       "ticker": "EZBC",
@@ -76,7 +76,7 @@
       "issuer": "Invesco Galaxy",
       "name": "Invesco Galaxy Bitcoin ETF",
       "btc": 5102.3317,
-      "as_of": "2026-09-30",
+      "as_of": "2026-10-01",
       "source": "https://www.invesco.com/us/financial-products/etfs/holdings?audienceType=Investor&ticker=BTCO",
       "method": "playwright: Invesco holdings page; dng-api fundDetails JSON 'units' (= 'Total units of crypto')",
       "change_btc": 0.0
@@ -85,50 +85,51 @@
       "ticker": "GBTC",
       "issuer": "Grayscale",
       "name": "Grayscale Bitcoin Trust ETF",
-      "btc": 133084.98573269,
-      "as_of": "2026-07-30",
-      "source": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001588489.json",
-      "method": "ESTIMATE from SEC filings: 138,505.76 BTC / 178,580,100 shares at 2026-06-30 (bitcoin per share, less the 1.50% fee accrued since) x 172,260,100 shares outstanding on the 2026-07-30 10-Q cover; Grayscale's site blocks automated readers",
-      "estimated": true
+      "btc": 126606.03926,
+      "as_of": "2026-10-01",
+      "source": "https://reporting-prod-20231113144948145500000003.s3.us-east-1.amazonaws.com/product-performance/672e88c7-dac6-4fcd-9069-18eef01a2c73.xlsx",
+      "method": "requests: Grayscale performance workbook, 163,870,100 shares (row 2026-10-02, settles 2026-10-01) x 0.00077260 bitcoin per share (Holdings sheet, 2026-10-02)",
+      "change_btc": -370.848
     },
     {
       "ticker": "BTC",
       "issuer": "Grayscale",
       "name": "Grayscale Bitcoin Mini Trust ETF",
-      "btc": 58878.65535154,
-      "as_of": "2026-07-30",
-      "source": "https://data.sec.gov/api/xbrl/companyfacts/CIK0002015034.json",
-      "method": "ESTIMATE from SEC filings: 54,280.40 BTC / 122,749,963 shares at 2026-06-30 (bitcoin per share, less the 0.15% fee accrued since) x 133,199,963 shares outstanding on the 2026-07-30 10-Q cover; Grayscale's site blocks automated readers",
-      "estimated": true
+      "btc": 63258.89694489,
+      "as_of": "2026-10-01",
+      "source": "https://reporting-prod-20231113144948145500000003.s3.amazonaws.com/product-performance/9ba286d6-3067-4153-b430-81d9d7a25696.xlsx",
+      "method": "requests: Grayscale performance workbook, 143,109,963 shares (row 2026-10-02, settles 2026-10-01) x 0.00044203 bitcoin per share (Holdings sheet, 2026-10-02)",
+      "change_btc": 172.3917
     },
     {
       "ticker": "BTCW",
       "issuer": "WisdomTree",
       "name": "WisdomTree Bitcoin Fund",
-      "btc": 2025.0,
-      "as_of": "2026-10-01",
-      "source": "https://www.wisdomtree.com/investments/etfs/crypto/btcw",
-      "method": "wisdomtree product page"
+      "btc": 2069.72993049,
+      "as_of": "2026-10-02",
+      "source": "https://api.nasdaq.com/api/quote/BTCW/summary?assetclass=etf",
+      "method": "ESTIMATE: 2,310 BTC / 2,185,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.25% fee since) x 1,958,994 shares outstanding (Nasdaq market cap / last price, Oct 2, 2026 6:09 PM ET); WisdomTree's site blocks automated readers",
+      "estimated": true
     },
     {
       "ticker": "MSBT",
       "issuer": "Morgan Stanley",
       "name": "Morgan Stanley Bitcoin Trust ETP",
-      "btc": 10435.89335758,
+      "btc": 10569.10200601,
       "as_of": "2026-10-02",
       "source": "https://api.nasdaq.com/api/quote/MSBT/summary?assetclass=etf",
-      "method": "ESTIMATE: 5,059.31 BTC / 17,650,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.14% fee since) x 36,420,000 shares outstanding (Nasdaq market cap / last price, Oct 1, 2026); Morgan Stanley's site blocks automated readers",
+      "method": "ESTIMATE: 5,059.31 BTC / 17,650,000 shares at 2026-06-30 (10-Q schedule of investments; bitcoin per share less the 0.14% fee since) x 36,884,882 shares outstanding (Nasdaq market cap / last price, Oct 2, 2026 6:10 PM ET); Morgan Stanley's site blocks automated readers",
       "estimated": true
     }
   ],
-  "total_btc": 1293676.82250057,
+  "total_btc": 1291721.28982485,
   "ok": 12,
   "failed": 0,
   "stale": 0,
-  "estimated": 4,
+  "estimated": 2,
   "not_covered": "Hashdex DEFI (liquidated August 2026)",
   "universe": 12,
-  "holdings_date": "2026-09-30",
-  "read_date": "2026-10-01",
-  "previous_generated_at": "2026-10-02T01:43:45Z"
+  "holdings_date": "2026-10-01",
+  "read_date": "2026-10-02",
+  "previous_generated_at": "2026-10-02T02:23:23Z"
 }
