@@ -170,8 +170,45 @@ def fetch_ibit():
     raise RuntimeError("BTC row not found in iShares holdings CSV")
 
 
+def fetch_fbtc_api():
+    """Fidelity's own research API, the one its quote dashboard calls: a token
+    from /api/tokens, then POST /api/quote {"symbol": "FBTC"}. The answer's
+    cryptoDetails.totalUnitPerCoin is 'Total bitcoin in fund' with its as-of
+    date. Plain requests, no browser (verified 2026-10-01: 183,166.9836 BTC as
+    of 09/30/2026, the same figure the page shows)."""
+    page = "https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC"
+    s = requests.Session()
+    s.headers.update({"User-Agent": UA, "Accept-Language": "en-US"})
+    s.get(page, timeout=TIMEOUT)
+    tokens = s.get("https://digital.fidelity.com/prgw/digital/research/api/tokens", timeout=TIMEOUT,
+                   headers={"Accept": "application/json", "Referer": page}).json()
+    tok = None
+    stack = [tokens]
+    while stack:
+        o = stack.pop()
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if "csrf" in k.lower() and isinstance(v, str):
+                    tok = v
+                stack.append(v)
+    if not tok:
+        raise RuntimeError("Fidelity token endpoint gave no csrf token")
+    q = s.post("https://digital.fidelity.com/prgw/digital/research/api/quote", json={"symbol": "FBTC"}, timeout=TIMEOUT,
+               headers={"Content-Type": "application/json", "Accept": "application/json",
+                        "Origin": "https://digital.fidelity.com", "Referer": page, "X-CSRF-TOKEN": tok})
+    q.raise_for_status()
+    m = re.search(r'"cryptoDetails":\{"totalUnitPerCoin":([\d.]+).*?"asOfDate":"(\d{2}/\d{2}/\d{4})"', q.text)
+    if not m:
+        raise RuntimeError("Fidelity quote API answered without cryptoDetails")
+    return float(m.group(1)), iso_date(m.group(2)), page, "requests: Fidelity research API (feeds the FBTC quote dashboard), cryptoDetails 'totalUnitPerCoin'"
+
+
 def fetch_fbtc():
-    """Fidelity: quote dashboard shows 'Total bitcoin in fund' (needs a browser)."""
+    """Fidelity: its research API first; the quote dashboard in a browser second."""
+    try:
+        return fetch_fbtc_api()
+    except Exception as e:
+        print(f"   Fidelity API failed ({type(e).__name__}: {e}); trying the dashboard", file=sys.stderr)
     url = "https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC"
     text, _ = browser_page(url, wait_text="Total bitcoin in fund", max_wait=75)
     m = re.search(r"Total bitcoin in fund\s*\n\s*As of\s+([A-Za-z]{3}-\d{2}-\d{4})\s*\n\s*([\d,]+\.?\d*)", text)
@@ -183,29 +220,110 @@ def fetch_fbtc():
         "playwright: Fidelity quote dashboard, 'Total bitcoin in fund' field"
 
 
-def _grayscale(ticker):
-    url = f"https://etfs.grayscale.com/{ticker.lower()}"
-    # 1) plain request (Grayscale answers 429 + Vercel Security Checkpoint to non-browsers)
+# GRAYSCALE-262: Grayscale's own performance workbooks, the files its product
+# pages download, on a public Amazon S3 bucket that has no bot wall. Sheet
+# "Daily Performance" has one row per business day (Date, Shares Outstanding,
+# NAV, AUM) back to launch; sheet "Holdings" has the current bitcoin per share.
+# A row dated D carries NAV for D but shares settled through the day before, so
+# the shares after trading day T's creations and redemptions sit on the next
+# row (checked 2026-10-01: every share change times NAV matched Farside's dollar
+# flow for the previous trading day, e.g. GBTC row 2026-09-16 -750,000 shares =
+# -$44.1M = Farside Sep 15). Holdings for T = shares(next row) x bitcoin per share.
+GRAYSCALE_XLSX = {
+    "GBTC": "https://reporting-prod-20231113144948145500000003.s3.us-east-1.amazonaws.com/product-performance/672e88c7-dac6-4fcd-9069-18eef01a2c73.xlsx",
+    "BTC":  "https://reporting-prod-20231113144948145500000003.s3.amazonaws.com/product-performance/9ba286d6-3067-4153-b430-81d9d7a25696.xlsx",
+}
+
+
+def grayscale_rows(ticker):
+    """[(date, shares)] oldest first, and (bps, bps_date), from Grayscale's workbook."""
     try:
-        r = SESSION.get(url, timeout=TIMEOUT)
-        status, html = r.status_code, r.text
-    except Exception as e:
-        status, html = f"error {type(e).__name__}", ""
-    if status == 200 and "Security Checkpoint" not in html:
-        text = BeautifulSoup(html, "html.parser").get_text("\n")
-    else:
-        # 2) real browser
-        text, _ = browser_page(url, wait_text="Bitcoin per Share", max_wait=40)
-        if "Security Checkpoint" in text or "Failed to verify your browser" in text:
-            raise RuntimeError(f"Grayscale blocked both requests (HTTP {status}) "
-                               f"and headless Chromium with a Vercel Security Checkpoint")
-    # Look for 'Bitcoin in Trust' / 'Total Bitcoin' style figure
-    m = (re.search(r"(?:Bitcoin in Trust|Total Bitcoin(?: in Trust)?|Bitcoin Holdings)\s*\n?\s*([\d,]+\.?\d*)", text, re.I)
-         or re.search(r"([\d,]{5,}\.?\d*)\s*BTC", text))
-    if not m:
-        raise RuntimeError("could not find bitcoin-in-trust figure on Grayscale page")
-    d = re.search(r"as of\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.I)
-    return num(m.group(1)), iso_date(d.group(1)) if d else "", url, "grayscale product page"
+        import openpyxl
+    except ImportError:  # pragma: no cover
+        os.system(f"{sys.executable} -m pip install --break-system-packages -q openpyxl")
+        import openpyxl
+    import io
+    r = requests.get(GRAYSCALE_XLSX[ticker], headers={"User-Agent": UA}, timeout=TIMEOUT)
+    r.raise_for_status()
+    wb = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True, data_only=True)
+    daily = list(wb["Daily Performance"].iter_rows(values_only=True))
+    head = [str(c or "").strip() for c in daily[0]]
+    i_date, i_sh = head.index("Date"), head.index("Shares Outstanding")
+    rows = sorted({(str(x[i_date])[:10], float(x[i_sh])) for x in daily[1:] if x and x[i_date] and x[i_sh]})
+    hold = list(wb["Holdings"].iter_rows(values_only=True))
+    hh = [str(c or "").strip() for c in hold[0]]
+    bps_row = next(x for x in hold[1:] if x and str(x[hh.index("Name")]).strip().upper() == "BTC")
+    bps = float(bps_row[hh.index("Asset/Share")])
+    if not rows or not 0 < bps < 1:
+        raise RuntimeError("Grayscale workbook had no daily rows or no bitcoin per share")
+    return rows, (bps, str(bps_row[hh.index("Date")])[:10])
+
+
+def grayscale_settled(ticker):
+    """{trading day: bitcoin held after that day's creations and redemptions}
+    for every day in the workbook, at the current bitcoin per share. Holding
+    bitcoin per share fixed makes a day's change exactly the shares created or
+    redeemed, which is what a flow is (the fee moves it about 0.004% a day)."""
+    rows, (bps, bps_date) = grayscale_rows(ticker)
+    return {d0: sh1 * bps for (d0, _), (d1, sh1) in zip(rows, rows[1:])}, rows, bps, bps_date
+
+
+def _grayscale(ticker):
+    rows, (bps, bps_date) = grayscale_rows(ticker)
+    target = run_trading_day(dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    after = [r for r in rows if r[0] > target]
+    if after:
+        shares, row_date = after[0][1], after[0][0]
+        return shares * bps, target, GRAYSCALE_XLSX[ticker], \
+            (f"requests: Grayscale performance workbook, {shares:,.0f} shares (row {row_date}, settles {target}) "
+             f"x {bps:.8f} bitcoin per share (Holdings sheet, {bps_date})")
+    # Grayscale posts the row that settles a trading day overnight after the
+    # next one (the 2026-10-01 row landed at 1:53 am Eastern on Oct 2), so at
+    # 6 pm the newest settled day is the one before. Report it, dated as such,
+    # and flagged carried (6th element): the next run heals the day in
+    # history.csv from the workbook (heal_grayscale).
+    before = [r for r in rows if r[0] <= target]
+    shares, row_date = before[-1][1], before[-1][0]
+    as_of = trading_day(row_date)
+    return shares * bps, as_of, GRAYSCALE_XLSX[ticker], \
+        (f"requests: Grayscale performance workbook, {shares:,.0f} shares (row {row_date}, settles {as_of}) "
+         f"x {bps:.8f} bitcoin per share; Grayscale had not yet posted the shares that settle {target}"), False, True
+
+
+def heal_grayscale(history_path):
+    """Rewrite GBTC and BTC in every history.csv row from Grayscale's workbook,
+    exact, and drop their carried or estimated flags for the days it settles.
+    Runs at any hour: it changes only past days with Grayscale's own numbers."""
+    with open(history_path) as f:
+        rdr = csv.DictReader(f)
+        cols = rdr.fieldnames
+        rows = list(rdr)
+    changed = 0
+    for t in GRAYSCALE_XLSX:
+        if t not in cols:
+            continue
+        try:
+            settled = grayscale_settled(t)[0]
+        except Exception as e:
+            print(f"{t:5s} history not healed: {type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        for r in rows:
+            v = settled.get(r["date"])
+            if v is None:
+                continue
+            flags = [x for x in (r.get("flags") or "").split() if x.split("=")[0] != t]
+            old = r.get(t, "")
+            r[t] = f"{v:.4f}"
+            r["flags"] = " ".join(flags)
+            if old != r[t]:
+                changed += 1
+    for r in rows:  # totals follow the funds
+        r["total_btc"] = f"{sum(float(r[t]) for t, _, _, _ in FUNDS if r.get(t)):.4f}"
+    with open(history_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols, lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+    print(f"history.csv: {changed} Grayscale cells healed from the workbooks", file=sys.stderr)
 
 
 def fetch_gbtc():
@@ -447,7 +565,33 @@ def quarter_anchor(ticker, default):
         print(f"   history_quarterly.csv not used for {ticker} anchor: {e}", file=sys.stderr)
     return a
 
+MSBT_JSON = "https://www.morganstanley.com/im/json/imwebdata/data/product/EF/100761/chart/etfTradeDateHoldingsCurrent.json"
+
+
+def fetch_msbt_json():
+    """MSBT-263: the holdings file Morgan Stanley's own fund page loads: the
+    trust's bitcoin quantity with its effective date (2026-10-01 in a browser:
+    10,519.09657402 BTC as of 10/01/2026). Akamai refuses it from data-center
+    addresses, so the estimate below stays as the fallback."""
+    r = requests.get(MSBT_JSON, timeout=TIMEOUT, headers={
+        "User-Agent": UA, "Accept": "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.morganstanley.com/im/en-us/individual-investor/product-and-performance/etfs/morgan-stanley-bitcoin-trust.html"})
+    if r.status_code != 200 or not r.text.lstrip().startswith(("{", "[")):
+        raise RuntimeError(f"Morgan Stanley holdings JSON refused (HTTP {r.status_code})")
+    text = r.text
+    q = re.search(r'"quantity"\s*:\s*"?([\d,]+\.?\d*)', text)
+    d = re.search(r'"effectiveDate"\s*:\s*"(\d{1,2}/\d{1,2}/\d{4})"', text)
+    if not q:
+        raise RuntimeError("Morgan Stanley holdings JSON had no quantity")
+    return num(q.group(1)), iso_date(d.group(1)) if d else "", MSBT_JSON, \
+        "requests: Morgan Stanley etfTradeDateHoldingsCurrent.json (feeds the MSBT holdings tab), 'quantity'"
+
+
 def fetch_msbt():
+    try:
+        return fetch_msbt_json()
+    except Exception as e:
+        print(f"   Morgan Stanley JSON failed ({type(e).__name__}: {e}); trying the page", file=sys.stderr)
     url = "https://www.morganstanley.com/im/en-us/individual-investor/products/etfs/digital-assets/morgan-stanley-bitcoin-trust.html"
     text, _ = browser_page(url, wait_text="Bitcoin", max_wait=45)
     if "Access Denied" in text or "don't have permission" in text:
@@ -791,6 +935,8 @@ def main():
                 got = fn()
             btc, as_of, source, method = got[0], got[1], got[2], got[3]
             estimated = len(got) > 4 and bool(got[4])
+            if len(got) > 5 and got[5]:
+                rec["stale"] = True  # GRAYSCALE-262: the issuer's newest settled day is the one before
             rec.update({"btc": round(float(btc), 8), "as_of": as_of, "source": source, "method": method})
             if estimated:
                 rec["estimated"] = True
@@ -889,6 +1035,11 @@ def main():
             h.write("\n".join(lines) + "\n")
     except Exception as e:
         print(f"history.csv not written: {e}", file=sys.stderr)  # includes the deliberate off-hours skip
+    try:  # GRAYSCALE-262: past days of GBTC and BTC, exact from Grayscale's workbooks
+        if os.path.exists(HISTORY_CSV):
+            heal_grayscale(HISTORY_CSV)
+    except Exception as e:
+        print(f"history.csv not healed: {e}", file=sys.stderr)
     # FLOWS: one entry a day of net buying or selling across the funds that were
     # read fresh that morning (not estimated, not carried forward), for the app's
     # "last days" rows. Kept for the last 60 days; today's entry replaces itself.
