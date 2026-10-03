@@ -38,7 +38,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_CSV = os.path.join(HERE, "history_quarterly.csv")
 
 UA = {
-    "User-Agent": "Bitcoin Halvening ETF bot admin@example.com",
+    "User-Agent": os.environ.get("SEC_USER_AGENT") or "Bitcoin Halvening ETF bot admin@example.com",  # PIPE-282 (GH-14): set the SEC_USER_AGENT repository secret to a name and a real contact
     "Accept-Encoding": "gzip, deflate",
 }
 PAUSE = 0.3  # seconds between requests; SEC asks for under 10/s, we stay well under 5/s
@@ -452,14 +452,25 @@ def main():
             flags.append(f"{r['ticker']} {r['date']}: {r['flag']}")
 
     rows.sort(key=lambda r: (r["date"], r["ticker"]))
+    out_rows = [[r["date"], r["ticker"], f"{r['btc']:.8f}".rstrip("0").rstrip("."),
+                 r["shares_outstanding"] or "", r["fair_value_usd"] or "",
+                 r["form"], r["accession"], r["method"]] for r in rows]  # PIPE-282 (GH-17)
+    # PIPE-282 (GH-17): a quarter row the previous file had and this run did not
+    # produce (a filing document that failed to download) is kept as it was, so
+    # one network error never removes a filing from the record.
+    have = {(x[0], x[1]) for x in out_rows}
+    if os.path.exists(args.out):
+        with open(args.out, newline="") as f:
+            for old in csv.reader(f):
+                if len(old) == 8 and old[0] != "date" and (old[0], old[1]) not in have:
+                    out_rows.append(old)
+                    notes.append(f"{old[1]} {old[0]}: not produced by this run; the previous row is kept")
+    out_rows.sort(key=lambda x: (x[0], x[1]))
     with open(args.out, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "ticker", "btc", "shares_outstanding", "fair_value_usd", "form", "accession", "method"])
-        for r in rows:
-            w.writerow([r["date"], r["ticker"], f"{r['btc']:.8f}".rstrip("0").rstrip("."),
-                        r["shares_outstanding"] or "", r["fair_value_usd"] or "",
-                        r["form"], r["accession"], r["method"]])
-    print(f"\nWrote {len(rows)} rows to {args.out}")
+        w.writerows(out_rows)  # PIPE-282 (GH-17)
+    print(f"\nWrote {len(out_rows)} rows to {args.out}")  # PIPE-282 (GH-17)
 
     print("\nPer-fund summary")
     print(f"{'fund':5s} {'periods':>7s}  {'first':10s} {'btc':>16s}  {'last':10s} {'btc':>16s}  methods")

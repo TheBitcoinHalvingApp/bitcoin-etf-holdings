@@ -1,0 +1,4 @@
+# PIPE-282 (GH-32): local working files that never belong in the repository
+__pycache__/
+*.pre*.py
+*.pre*.csv

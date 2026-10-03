@@ -80,6 +80,7 @@ def sources():
         lambda b: b'"data"' in b[:200],
     ))
     gecko = [
+        ("global.json", "https://api.coingecko.com/api/v3/global", b'"market_cap_percentage"'),  # PIPE-282 (API-9): the app reads this copy when its live /global call fails
         ("stablecoins.json", "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=stablecoins&per_page=100&page=1", b'"market_cap"'),
         ("treasury.json", "https://api.coingecko.com/api/v3/companies/public_treasury/bitcoin", b'"total_holdings"'),
         ("governments.json", "https://api.coingecko.com/api/v3/governments/public_treasury/bitcoin", b'"total_holdings"'),
@@ -116,7 +117,8 @@ def fetch(url: str, tries: int = 3) -> bytes:
             last = "HTTP %d" % r.status_code
         except Exception as e:  # noqa: BLE001
             last = str(e)[:120]
-        time.sleep(3 + 3 * i)
+        if i + 1 < tries:  # PIPE-282 (GH-34): no wait after the last try
+            time.sleep(3 + 3 * i)
     raise RuntimeError(last or "no response")
 
 
